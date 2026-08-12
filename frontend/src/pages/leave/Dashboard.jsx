@@ -33,7 +33,7 @@ export default function Dashboard() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
           <p className="mt-2 text-m text-slate-600">Quick view of your leave balances and pending approvals.</p>
         </div>
       </div>
