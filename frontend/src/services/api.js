@@ -1,53 +1,60 @@
-const API_BASE_URL = "http://localhost:8000/api/v1";
+import axios from "axios";
+
+
+const api = axios.create({
+    baseURL: "http://localhost:8000/api/v1",
+    headers: {
+        "Content-Type": "application/json",
+    },
+});
+
+
+api.interceptors.request.use((config) => {
+
+    const token = localStorage.getItem("access_token");
+
+    if (token && config.headers) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    return config;
+});
 
 
 export async function loginUser(email, password) {
+
     const formData = new URLSearchParams();
 
     formData.append("username", email);
     formData.append("password", password);
 
-    const response = await fetch(
-        `${API_BASE_URL}/auth/login`,
+    const response = await api.post(
+        "/auth/login",
+        formData,
         {
-            method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
             },
-            body: formData,
         }
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(
-            data.detail || "Login failed"
-        );
-    }
-
-    return data;
+    return response.data;
 }
 
 
 export async function getCurrentUser(token) {
-    const response = await fetch(
-        `${API_BASE_URL}/auth/me`,
+
+    const response = await api.get(
+        "/auth/me",
         {
-            method: "GET",
             headers: {
                 Authorization: `Bearer ${token}`,
             },
         }
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(
-            data.detail || "Unable to fetch user"
-        );
-    }
-
-    return data;
+    return response.data;
 }
+
+
+export default api;

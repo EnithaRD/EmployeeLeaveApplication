@@ -1,13 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.core.security import (
-    create_access_token,
-    decode_access_token,
-)
+from app.core.security import create_access_token, decode_access_token
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.auth import CurrentUser, Token
@@ -24,6 +20,13 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 
+LOGIN_ALIASES = {
+    "admin": "admin@example.com",
+    "manager": "manager@example.com",
+    "employee": "employee@example.com",
+}
+
+
 @router.post(
     "/login",
     response_model=Token,
@@ -33,28 +36,22 @@ def login(
     db: Session = Depends(get_db),
 ):
 
+    lookup_value = LOGIN_ALIASES.get(
+        form_data.username.strip().lower(),
+        form_data.username.strip(),
+    )
+
     user = (
         db.query(User)
-        .filter(User.email == form_data.username)
+        .filter(User.email == lookup_value)
         .first()
     )
 
-    if user is None:
+    if user is None or user.password != form_data.password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
-        )
-
-    if user.password != form_data.password:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not user.is_active:
@@ -82,21 +79,17 @@ def get_current_user(
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={
-            "WWW-Authenticate": "Bearer"
-        },
+        headers={"WWW-Authenticate": "Bearer"},
     )
 
     try:
         payload = decode_access_token(token)
-
         user_id = payload.get("sub")
 
         if user_id is None:
             raise credentials_exception
 
         user_id = int(user_id)
-
     except (JWTError, ValueError):
         raise credentials_exception
 
@@ -130,10 +123,11 @@ def get_me(
 
 def require_role(*allowed_roles: str):
 
+    if len(allowed_roles) == 1 and isinstance(allowed_roles[0], (list, tuple, set)):
+        allowed_roles = tuple(allowed_roles[0])
+
     def role_checker(
-        current_user: User = Depends(
-            get_current_user
-        ),
+        current_user: User = Depends(get_current_user),
     ) -> User:
 
         if current_user.role not in allowed_roles:

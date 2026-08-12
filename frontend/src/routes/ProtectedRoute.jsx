@@ -3,7 +3,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, allowedRoles }) {
 
     const {
         user,
@@ -26,6 +26,20 @@ function ProtectedRoute({ children }) {
         return (
             <Navigate
                 to="/login"
+                replace
+            />
+        );
+    }
+
+
+    if (
+        Array.isArray(allowedRoles) &&
+        allowedRoles.length > 0 &&
+        !allowedRoles.includes(user.role)
+    ) {
+        return (
+            <Navigate
+                to="/"
                 replace
             />
         );
