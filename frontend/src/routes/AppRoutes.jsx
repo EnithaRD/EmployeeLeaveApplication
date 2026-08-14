@@ -7,6 +7,7 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 import Login from "../pages/auth/Login";
+import Signup from "../pages/auth/Signup";
 import Authenticated from "../pages/auth/Authenticated";
 import ApplyLeave from "../pages/leave/ApplyLeave";
 import Approvals from "../pages/leave/Approvals";
@@ -25,6 +26,7 @@ function AppShell({ children }) {
     const roleLabel = user?.role
         ? user.role.charAt(0) + user.role.slice(1).toLowerCase()
         : "Employee";
+    const displayName = user?.email || roleLabel;
     const canApplyLeave = user?.role === "EMPLOYEE" || user?.role === "MANAGER";
 
 
@@ -51,10 +53,10 @@ function AppShell({ children }) {
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-2xl font-semibold text-slate-900">
-                                    Hello {roleLabel}
+                                    Hello, {displayName}
                                 </p>
                                 <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-700">
-                                    {user?.role}
+                                    {roleLabel}
                                 </span>
                             </div>
                         </div>
@@ -127,6 +129,12 @@ function AppRoutes() {
             <Route
                 path="/login"
                 element={<Login />}
+            />
+
+
+            <Route
+                path="/signup"
+                element={<Signup />}
             />
 
 

@@ -15,3 +15,18 @@ class CurrentUser(BaseModel):
     email: str
     role: str
     is_active: bool
+
+
+class OtpRequest(BaseModel):
+    email: str
+
+
+class OtpVerify(BaseModel):
+    email: str
+    code: str
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    role: str

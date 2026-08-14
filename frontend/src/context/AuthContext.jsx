@@ -8,6 +8,7 @@ import {
 import {
 	getCurrentUser,
 	loginUser,
+	verifyOtp,
 } from "../services/api";
 
 
@@ -65,6 +66,20 @@ export function AuthProvider({ children }) {
 	};
 
 
+	const loginWithOtp = async (email, code) => {
+
+		const data = await verifyOtp(email, code);
+
+		localStorage.setItem("access_token", data.access_token);
+		setToken(data.access_token);
+
+		const currentUser = await getCurrentUser(data.access_token);
+		setUser(currentUser);
+
+		return currentUser;
+	};
+
+
 	const logout = () => {
 
 		localStorage.removeItem("access_token");
@@ -80,6 +95,7 @@ export function AuthProvider({ children }) {
 				token,
 				loading,
 				login,
+				loginWithOtp,
 				logout,
 			}}
 		>

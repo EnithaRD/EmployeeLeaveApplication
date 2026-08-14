@@ -11,6 +11,7 @@ from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
+from app.models.otp_code import OtpCode
 from app.models.user import User
 
 
