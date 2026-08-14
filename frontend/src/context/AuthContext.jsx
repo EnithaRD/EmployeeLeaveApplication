@@ -52,17 +52,31 @@ export function AuthProvider({ children }) {
 	}, [token]);
 
 
+	const applySession = async (accessToken) => {
+
+		localStorage.setItem("access_token", accessToken);
+		setToken(accessToken);
+
+		const currentUser = await getCurrentUser(accessToken);
+		setUser(currentUser);
+
+		return currentUser;
+	};
+
+
 	const login = async (email, password) => {
 
 		const data = await loginUser(email, password);
 
-		localStorage.setItem("access_token", data.access_token);
-		setToken(data.access_token);
+		return applySession(data.access_token);
+	};
 
-		const currentUser = await getCurrentUser(data.access_token);
-		setUser(currentUser);
 
-		return currentUser;
+	const loginWithOtp = async (email, code) => {
+
+		const data = await verifyOtp(email, code);
+
+		return applySession(data.access_token);
 	};
 
 

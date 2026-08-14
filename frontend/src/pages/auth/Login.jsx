@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 import { requestOtp } from "../../services/api";
+import { requestOtp } from "../../services/api";
 
 
 function Login() {
@@ -15,7 +16,10 @@ function Login() {
         user,
         login,
         loginWithOtp,
+        loginWithOtp,
     } = useAuth();
+
+    const [mode, setMode] = useState("password");
 
     const [mode, setMode] = useState("password");
 
@@ -221,6 +225,16 @@ function Login() {
                                         required
                                     />
                                 </div>
+                                    <input
+                                        id="email"
+                                        type="text"
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                        placeholder="admin"
+                                        required
+                                    />
+                                </div>
 
                                 <div>
                                     <label
@@ -229,7 +243,24 @@ function Login() {
                                     >
                                         Password
                                     </label>
+                                <div>
+                                    <label
+                                        htmlFor="password"
+                                        className="block text-sm font-medium text-slate-700"
+                                    >
+                                        Password
+                                    </label>
 
+                                    <input
+                                        id="password"
+                                        type="password"
+                                        value={password}
+                                        onChange={(event) => setPassword(event.target.value)}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                        placeholder="password"
+                                        required
+                                    />
+                                </div>
                                     <input
                                         id="password"
                                         type="password"

@@ -1,11 +1,12 @@
 from app.models.leave_type import LeaveType
+from app.models.user import User
 
 
 def test_root_endpoint(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json() == {"message": "Employee Leave Application API is running."}
+    assert response.json() == {"message": "Employee Leave Application API"}
 
 
 def test_health_endpoint(client):
@@ -42,16 +43,22 @@ def test_list_leave_types_returns_seeded_rows(client, db_session):
     assert body[0]["default_annual_quota"] == 18
 
 
-def test_login_with_valid_credentials(client):
-    response = client.post("/api/v1/auth/login", json={"username": "admin", "password": "password"})
+def test_login_with_valid_credentials(client, db_session):
+    db_session.add(User(email="admin@example.com", password="password", role="ADMIN", is_active=True))
+    db_session.commit()
+
+    response = client.post("/api/v1/auth/login", data={"username": "admin", "password": "password"})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["access_token"] == "admin"
-    assert body["user"]["role"] == "ADMIN"
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
 
 
-def test_login_with_invalid_password(client):
-    response = client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong"})
+def test_login_with_invalid_password(client, db_session):
+    db_session.add(User(email="admin@example.com", password="password", role="ADMIN", is_active=True))
+    db_session.commit()
+
+    response = client.post("/api/v1/auth/login", data={"username": "admin", "password": "wrong"})
 
     assert response.status_code == 401

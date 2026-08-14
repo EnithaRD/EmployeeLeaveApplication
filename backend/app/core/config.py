@@ -9,9 +9,10 @@ class Settings(BaseSettings):
 
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = ""
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str | None = None
+
     OTP_EXPIRE_MINUTES: int = 5
     OTP_MAX_ATTEMPTS: int = 5
 

@@ -3,11 +3,27 @@ from datetime import date
 from app.models.employee import Employee
 from app.models.leave_application import LeaveApplication
 from app.models.leave_type import LeaveType
+from app.models.user import User
 from app.services.leave_balance_service import (
     calculate_working_days,
     get_available_days,
     get_or_create_balance,
 )
+
+
+def _make_employee(db_session, employee_id: int, email: str) -> Employee:
+    user = User(email=email, password="password", role="EMPLOYEE", is_active=True)
+    db_session.add(user)
+    db_session.flush()
+
+    employee = Employee(
+        id=employee_id,
+        user_id=user.id,
+        full_name="A",
+        date_of_joining=date(2026, 1, 1),
+    )
+    db_session.add(employee)
+    return employee
 
 
 def test_calculate_working_days_excludes_weekends():
@@ -34,9 +50,9 @@ def test_calculate_working_days_start_after_end_returns_zero():
 
 
 def test_get_or_create_balance_creates_with_leave_type_quota(db_session):
-    employee = Employee(id=1, email="a@example.com", full_name="A", role="EMPLOYEE")
+    _make_employee(db_session, employee_id=1, email="a@example.com")
     leave_type = LeaveType(id=1, name="Annual", default_annual_quota=18)
-    db_session.add_all([employee, leave_type])
+    db_session.add(leave_type)
     db_session.commit()
 
     balance = get_or_create_balance(db_session, employee_id=1, leave_type_id=1, year=2026)
@@ -46,9 +62,9 @@ def test_get_or_create_balance_creates_with_leave_type_quota(db_session):
 
 
 def test_get_or_create_balance_returns_existing(db_session):
-    employee = Employee(id=1, email="a@example.com", full_name="A", role="EMPLOYEE")
+    _make_employee(db_session, employee_id=1, email="a@example.com")
     leave_type = LeaveType(id=1, name="Annual", default_annual_quota=18)
-    db_session.add_all([employee, leave_type])
+    db_session.add(leave_type)
     db_session.commit()
 
     first = get_or_create_balance(db_session, employee_id=1, leave_type_id=1, year=2026)
@@ -62,9 +78,9 @@ def test_get_or_create_balance_returns_existing(db_session):
 
 
 def test_get_available_days_subtracts_used_and_pending(db_session):
-    employee = Employee(id=1, email="a@example.com", full_name="A", role="EMPLOYEE")
+    _make_employee(db_session, employee_id=1, email="a@example.com")
     leave_type = LeaveType(id=1, name="Annual", default_annual_quota=18)
-    db_session.add_all([employee, leave_type])
+    db_session.add(leave_type)
     db_session.commit()
 
     balance = get_or_create_balance(db_session, employee_id=1, leave_type_id=1, year=2026)
