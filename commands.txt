@@ -1,0 +1,19 @@
+py -3.14 -m uvicorn app.main:app --reload
+psql -U postgres -h localhost -p 5433 -d employee_leave_db
+npm run dev
+
+
+git switch feature/varsha-leave-dashboard
+
+git add .
+git commit -m "Update leave dashboard"
+
+git push origin feature/varsha-leave-dashboard
+
+git switch develop
+
+git pull origin develop
+
+git merge feature/varsha-leave-dashboard
+
+git push origin develop
