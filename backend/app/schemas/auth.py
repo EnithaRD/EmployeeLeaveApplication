@@ -24,3 +24,9 @@ class OtpRequest(BaseModel):
 class OtpVerify(BaseModel):
     email: str
     code: str
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    role: str

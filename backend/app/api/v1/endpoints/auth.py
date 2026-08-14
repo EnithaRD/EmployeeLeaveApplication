@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
@@ -7,9 +9,13 @@ from app.core.email.base import EmailSender
 from app.core.email.dependency import get_email_sender
 from app.core.security import create_access_token, decode_access_token
 from app.db.database import get_db
+from app.models.employee import Employee
 from app.models.user import User
-from app.schemas.auth import CurrentUser, OtpRequest, OtpVerify, Token
+from app.schemas.auth import CurrentUser, OtpRequest, OtpVerify, SignupRequest, Token
 from app.services import otp_service
+
+
+SIGNUP_ROLES = {"MANAGER", "EMPLOYEE"}
 
 
 router = APIRouter(
@@ -75,18 +81,73 @@ def login(
 
 
 @router.post(
+    "/signup",
+    response_model=CurrentUser,
+    status_code=status.HTTP_201_CREATED,
+)
+def signup(
+    payload: SignupRequest,
+    db: Session = Depends(get_db),
+):
+
+    role = payload.role.strip().upper()
+
+    if role not in SIGNUP_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role must be either MANAGER or EMPLOYEE",
+        )
+
+    existing_user = (
+        db.query(User)
+        .filter(User.email == payload.email.strip())
+        .first()
+    )
+
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists",
+        )
+
+    user = User(
+        email=payload.email.strip(),
+        password=payload.password,
+        role=role,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    employee = Employee(
+        user_id=user.id,
+        full_name=user.email,
+        department_id=None,
+        manager_id=None,
+        date_of_joining=date.today(),
+    )
+    db.add(employee)
+    db.commit()
+
+    return user
+
+
+@router.post(
     "/otp/request",
     status_code=status.HTTP_202_ACCEPTED,
 )
 def request_otp(
     payload: OtpRequest,
     db: Session = Depends(get_db),
-    email_sender: EmailSender = Depends(get_email_sender),
+    sender: EmailSender = Depends(get_email_sender),
 ):
 
-    otp_service.request_otp(db, payload.email, email_sender)
+    otp_service.request_otp(db, payload.email, sender)
 
-    return {"message": "If the account exists, an OTP has been sent."}
+    return {
+        "detail": "If the account exists, a code has been sent.",
+    }
 
 
 @router.post(
@@ -103,7 +164,7 @@ def verify_otp(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired OTP",
+            detail="Invalid or expired code",
         )
 
     access_token = create_access_token(
