@@ -42,6 +42,28 @@ export async function loginUser(email, password) {
 }
 
 
+export async function requestOtp(email) {
+
+    const response = await api.post(
+        "/auth/otp/request",
+        { email }
+    );
+
+    return response.data;
+}
+
+
+export async function verifyOtp(email, code) {
+
+    const response = await api.post(
+        "/auth/otp/verify",
+        { email, code }
+    );
+
+    return response.data;
+}
+
+
 export async function getCurrentUser(token) {
 
     const response = await api.get(

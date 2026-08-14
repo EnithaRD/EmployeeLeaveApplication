@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
+import { requestOtp } from "../../services/api";
 
 
 function Login() {
@@ -10,12 +11,21 @@ function Login() {
     const {
         user,
         login,
+        loginWithOtp,
     } = useAuth();
+
+    const [mode, setMode] = useState("password");
 
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+
+    const [otpEmail, setOtpEmail] = useState("");
+    const [otpCode, setOtpCode] = useState("");
+    const [otpSent, setOtpSent] = useState(false);
+    const [otpSending, setOtpSending] = useState(false);
+    const [otpInfo, setOtpInfo] = useState("");
 
 
     useEffect(() => {
@@ -24,6 +34,16 @@ function Login() {
             navigate("/", { replace: true });
         }
     }, [user, navigate]);
+
+
+    const switchMode = (nextMode) => {
+
+        setMode(nextMode);
+        setError("");
+        setOtpInfo("");
+        setOtpSent(false);
+        setOtpCode("");
+    };
 
 
     const handleSubmit = async (event) => {
@@ -44,6 +64,56 @@ function Login() {
             setError(
                 error.message ||
                 "Invalid email or password"
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
+    const handleSendOtp = async (event) => {
+
+        event.preventDefault();
+
+        setError("");
+        setOtpInfo("");
+        setOtpSending(true);
+
+        try {
+
+            await requestOtp(otpEmail);
+
+            setOtpSent(true);
+            setOtpInfo(`If ${otpEmail} has an account, a login code was sent to it.`);
+        } catch (error) {
+
+            setError(
+                error.message ||
+                "Could not send a login code. Try again."
+            );
+        } finally {
+            setOtpSending(false);
+        }
+    };
+
+
+    const handleVerifyOtp = async (event) => {
+
+        event.preventDefault();
+
+        setError("");
+        setLoading(true);
+
+        try {
+
+            await loginWithOtp(otpEmail, otpCode);
+
+            navigate("/", { replace: true });
+        } catch (error) {
+
+            setError(
+                error.message ||
+                "That code is invalid or has expired."
             );
         } finally {
             setLoading(false);
@@ -93,62 +163,165 @@ function Login() {
                             Login to your account
                         </p>
 
+                        <div className="mt-6 inline-flex rounded-2xl bg-slate-100 p-1 text-sm font-medium">
+                            <button
+                                type="button"
+                                onClick={() => switchMode("password")}
+                                className={`rounded-xl px-4 py-2 transition ${
+                                    mode === "password"
+                                        ? "bg-white text-slate-900 shadow"
+                                        : "text-slate-500 hover:text-slate-700"
+                                }`}
+                            >
+                                Password
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => switchMode("otp")}
+                                className={`rounded-xl px-4 py-2 transition ${
+                                    mode === "otp"
+                                        ? "bg-white text-slate-900 shadow"
+                                        : "text-slate-500 hover:text-slate-700"
+                                }`}
+                            >
+                                Email code
+                            </button>
+                        </div>
+
                         {error ? (
                             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
                                 {error}
                             </div>
                         ) : null}
 
-                        <form
-                            onSubmit={handleSubmit}
-                            className="mt-8 space-y-6"
-                        >
-                            <div>
-                                <label
-                                    htmlFor="email"
-                                    className="block text-sm font-medium text-slate-700"
-                                >
-                                    Username or email
-                                </label>
-
-                                <input
-                                    id="email"
-                                    type="text"
-                                    value={email}
-                                    onChange={(event) => setEmail(event.target.value)}
-                                    className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                                    placeholder="admin"
-                                    required
-                                />
+                        {otpInfo ? (
+                            <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                                {otpInfo}
                             </div>
+                        ) : null}
 
-                            <div>
-                                <label
-                                    htmlFor="password"
-                                    className="block text-sm font-medium text-slate-700"
-                                >
-                                    Password
-                                </label>
-
-                                <input
-                                    id="password"
-                                    type="password"
-                                    value={password}
-                                    onChange={(event) => setPassword(event.target.value)}
-                                    className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                                    placeholder="password"
-                                    required
-                                />
-                            </div>
-
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="w-full rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                        {mode === "password" ? (
+                            <form
+                                onSubmit={handleSubmit}
+                                className="mt-8 space-y-6"
                             >
-                                {loading ? "Signing in..." : "Sign In"}
-                            </button>
-                        </form>
+                                <div>
+                                    <label
+                                        htmlFor="email"
+                                        className="block text-sm font-medium text-slate-700"
+                                    >
+                                        Username or email
+                                    </label>
+
+                                    <input
+                                        id="email"
+                                        type="text"
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                        placeholder="admin"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label
+                                        htmlFor="password"
+                                        className="block text-sm font-medium text-slate-700"
+                                    >
+                                        Password
+                                    </label>
+
+                                    <input
+                                        id="password"
+                                        type="password"
+                                        value={password}
+                                        onChange={(event) => setPassword(event.target.value)}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                        placeholder="password"
+                                        required
+                                    />
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                >
+                                    {loading ? "Signing in..." : "Sign In"}
+                                </button>
+                            </form>
+                        ) : (
+                            <form
+                                onSubmit={otpSent ? handleVerifyOtp : handleSendOtp}
+                                className="mt-8 space-y-6"
+                            >
+                                <div>
+                                    <label
+                                        htmlFor="otp-email"
+                                        className="block text-sm font-medium text-slate-700"
+                                    >
+                                        Email
+                                    </label>
+
+                                    <input
+                                        id="otp-email"
+                                        type="email"
+                                        value={otpEmail}
+                                        onChange={(event) => setOtpEmail(event.target.value)}
+                                        disabled={otpSent}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500"
+                                        placeholder="employee@example.com"
+                                        required
+                                    />
+                                </div>
+
+                                {otpSent ? (
+                                    <div>
+                                        <label
+                                            htmlFor="otp-code"
+                                            className="block text-sm font-medium text-slate-700"
+                                        >
+                                            6-digit code
+                                        </label>
+
+                                        <input
+                                            id="otp-code"
+                                            type="text"
+                                            inputMode="numeric"
+                                            pattern="[0-9]{6}"
+                                            maxLength={6}
+                                            value={otpCode}
+                                            onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
+                                            className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-center text-lg tracking-[0.4em] text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                            placeholder="••••••"
+                                            required
+                                            autoFocus
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={handleSendOtp}
+                                            disabled={otpSending}
+                                            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:text-slate-400"
+                                        >
+                                            {otpSending ? "Resending..." : "Resend code"}
+                                        </button>
+                                    </div>
+                                ) : null}
+
+                                <button
+                                    type="submit"
+                                    disabled={otpSent ? loading : otpSending}
+                                    className="w-full rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                >
+                                    {otpSent
+                                        ? (loading ? "Verifying..." : "Verify & sign in")
+                                        : (otpSending ? "Sending code..." : "Send login code")}
+                                </button>
+                            </form>
+                        )}
                     </div>
                 </div>
             </div>

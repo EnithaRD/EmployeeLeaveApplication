@@ -3,10 +3,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from app.core.email.base import EmailSender
+from app.core.email.dependency import get_email_sender
 from app.core.security import create_access_token, decode_access_token
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.auth import CurrentUser, Token
+from app.schemas.auth import CurrentUser, OtpRequest, OtpVerify, Token
+from app.services import otp_service
 
 
 router = APIRouter(
@@ -58,6 +61,49 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
+        )
+
+    access_token = create_access_token(
+        user_id=user.id,
+        role=user.role,
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
+
+
+@router.post(
+    "/otp/request",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_otp(
+    payload: OtpRequest,
+    db: Session = Depends(get_db),
+    email_sender: EmailSender = Depends(get_email_sender),
+):
+
+    otp_service.request_otp(db, payload.email, email_sender)
+
+    return {"message": "If the account exists, an OTP has been sent."}
+
+
+@router.post(
+    "/otp/verify",
+    response_model=Token,
+)
+def verify_otp(
+    payload: OtpVerify,
+    db: Session = Depends(get_db),
+):
+
+    user = otp_service.verify_otp(db, payload.email, payload.code)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired OTP",
         )
 
     access_token = create_access_token(
