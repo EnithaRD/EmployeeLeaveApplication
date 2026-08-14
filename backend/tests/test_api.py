@@ -8,6 +8,13 @@ def test_root_endpoint(client):
     assert response.json() == {"message": "Employee Leave Application API is running."}
 
 
+def test_health_endpoint(client):
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_api_v1_root(client):
     response = client.get("/api/v1/")
 
