@@ -1,121 +1,198 @@
 import re
 
+import pytest
+
 from app.core.email.base import EmailSender
 from app.core.email.dependency import get_email_sender
+from app.core.security import decode_access_token
 from app.main import app
+from app.models.otp_code import OtpCode
 from app.models.user import User
+from app.services import otp_service
 
 
 class FakeEmailSender(EmailSender):
-    """Test double: captures sent messages instead of hitting the network."""
 
     def __init__(self):
         self.sent = []
 
-    def send(self, to: str, subject: str, body: str) -> None:
+    def send(self, to, subject, body):
         self.sent.append({"to": to, "subject": subject, "body": body})
 
 
-def _extract_code(body: str) -> str:
-    match = re.search(r"\b(\d{6})\b", body)
-    assert match, f"no 6-digit code found in email body: {body!r}"
-    return match.group(1)
+@pytest.fixture()
+def fake_sender():
+    sender = FakeEmailSender()
+    app.dependency_overrides[get_email_sender] = lambda: sender
+    try:
+        yield sender
+    finally:
+        app.dependency_overrides.pop(get_email_sender, None)
 
 
-def _override_email_sender(fake_sender):
-    app.dependency_overrides[get_email_sender] = lambda: fake_sender
-
-
-def test_otp_request_sends_email_for_known_active_user(client, db_session):
-    db_session.add(User(email="user@example.com", password="password", role="EMPLOYEE", is_active=True))
+def _seed_user(db_session, email="employee@example.com", is_active=True):
+    user = User(
+        email=email,
+        password="password",
+        role="EMPLOYEE",
+        is_active=is_active,
+    )
+    db_session.add(user)
     db_session.commit()
+    db_session.refresh(user)
+    return user
 
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
 
-    response = client.post("/api/v1/auth/otp/request", json={"email": "user@example.com"})
+def _extract_code(body):
+    match = re.search(r"\d{6}", body)
+    assert match is not None
+    return match.group(0)
+
+
+def test_request_otp_unknown_user_returns_202_and_sends_nothing(client, db_session, fake_sender):
+    response = client.post(
+        "/api/v1/auth/otp/request",
+        json={"email": "unknown@example.com"},
+    )
+
+    assert response.status_code == 202
+    assert fake_sender.sent == []
+
+
+def test_request_otp_inactive_user_returns_202_and_sends_nothing(client, db_session, fake_sender):
+    _seed_user(db_session, email="inactive@example.com", is_active=False)
+
+    response = client.post(
+        "/api/v1/auth/otp/request",
+        json={"email": "inactive@example.com"},
+    )
+
+    assert response.status_code == 202
+    assert fake_sender.sent == []
+
+
+def test_request_otp_active_user_sends_email(client, db_session, fake_sender):
+    _seed_user(db_session)
+
+    response = client.post(
+        "/api/v1/auth/otp/request",
+        json={"email": "employee@example.com"},
+    )
 
     assert response.status_code == 202
     assert len(fake_sender.sent) == 1
-    assert fake_sender.sent[0]["to"] == "user@example.com"
+    assert fake_sender.sent[0]["to"] == "employee@example.com"
+    _extract_code(fake_sender.sent[0]["body"])
 
 
-def test_otp_request_does_not_send_for_unknown_user(client, db_session):
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
+def test_verify_otp_correct_code_returns_token(client, db_session, fake_sender):
+    user = _seed_user(db_session)
 
-    response = client.post("/api/v1/auth/otp/request", json={"email": "nobody@example.com"})
-
-    assert response.status_code == 202
-    assert fake_sender.sent == []
-
-
-def test_otp_request_does_not_send_for_inactive_user(client, db_session):
-    db_session.add(User(email="inactive@example.com", password="password", role="EMPLOYEE", is_active=False))
-    db_session.commit()
-
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
-
-    response = client.post("/api/v1/auth/otp/request", json={"email": "inactive@example.com"})
-
-    assert response.status_code == 202
-    assert fake_sender.sent == []
-
-
-def test_otp_verify_with_correct_code_returns_access_token(client, db_session):
-    db_session.add(User(email="user@example.com", password="password", role="EMPLOYEE", is_active=True))
-    db_session.commit()
-
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
-
-    client.post("/api/v1/auth/otp/request", json={"email": "user@example.com"})
+    client.post("/api/v1/auth/otp/request", json={"email": user.email})
     code = _extract_code(fake_sender.sent[0]["body"])
 
-    response = client.post("/api/v1/auth/otp/verify", json={"email": "user@example.com", "code": code})
+    response = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": code},
+    )
 
     assert response.status_code == 200
     body = response.json()
     assert body["token_type"] == "bearer"
-    assert body["access_token"]
+
+    payload = decode_access_token(body["access_token"])
+    assert payload["sub"] == str(user.id)
+    assert payload["role"] == user.role
 
 
-def test_otp_verify_with_wrong_code_is_rejected(client, db_session):
-    db_session.add(User(email="user@example.com", password="password", role="EMPLOYEE", is_active=True))
-    db_session.commit()
+def test_verify_otp_wrong_code_returns_401(client, db_session, fake_sender):
+    user = _seed_user(db_session)
 
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
+    client.post("/api/v1/auth/otp/request", json={"email": user.email})
+    real_code = _extract_code(fake_sender.sent[0]["body"])
+    wrong_code = "000000" if real_code != "000000" else "111111"
 
-    client.post("/api/v1/auth/otp/request", json={"email": "user@example.com"})
-
-    response = client.post("/api/v1/auth/otp/verify", json={"email": "user@example.com", "code": "000000"})
+    response = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": wrong_code},
+    )
 
     assert response.status_code == 401
 
 
-def test_otp_cannot_be_reused_after_verification(client, db_session):
-    db_session.add(User(email="user@example.com", password="password", role="EMPLOYEE", is_active=True))
+def test_verify_otp_no_request_on_record_returns_401(client, db_session, fake_sender):
+    user = _seed_user(db_session)
+
+    response = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": "123456"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_verify_otp_expired_code_returns_401(client, db_session, fake_sender):
+    from datetime import datetime, timedelta
+
+    user = _seed_user(db_session)
+
+    salt = b"0123456789abcdef"
+    code = "654321"
+    otp_code = OtpCode(
+        user_id=user.id,
+        salt=salt.hex(),
+        code_hash=otp_service._hash_code(code, salt),
+        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        attempt_count=0,
+    )
+    db_session.add(otp_code)
     db_session.commit()
 
-    fake_sender = FakeEmailSender()
-    _override_email_sender(fake_sender)
+    response = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": code},
+    )
 
-    client.post("/api/v1/auth/otp/request", json={"email": "user@example.com"})
+    assert response.status_code == 401
+
+
+def test_verify_otp_replayed_code_returns_401(client, db_session, fake_sender):
+    user = _seed_user(db_session)
+
+    client.post("/api/v1/auth/otp/request", json={"email": user.email})
     code = _extract_code(fake_sender.sent[0]["body"])
 
-    first = client.post("/api/v1/auth/otp/verify", json={"email": "user@example.com", "code": code})
-    second = client.post("/api/v1/auth/otp/verify", json={"email": "user@example.com", "code": code})
-
+    first = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": code},
+    )
     assert first.status_code == 200
+
+    second = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": code},
+    )
     assert second.status_code == 401
 
 
-def test_otp_verify_without_prior_request_is_rejected(client, db_session):
-    db_session.add(User(email="user@example.com", password="password", role="EMPLOYEE", is_active=True))
-    db_session.commit()
+def test_verify_otp_max_attempts_returns_401(client, db_session, fake_sender, monkeypatch):
+    monkeypatch.setattr(otp_service.settings, "OTP_MAX_ATTEMPTS", 2)
 
-    response = client.post("/api/v1/auth/otp/verify", json={"email": "user@example.com", "code": "123456"})
+    user = _seed_user(db_session)
 
-    assert response.status_code == 401
+    client.post("/api/v1/auth/otp/request", json={"email": user.email})
+    real_code = _extract_code(fake_sender.sent[0]["body"])
+    wrong_code = "000000" if real_code != "000000" else "111111"
+
+    for _ in range(2):
+        response = client.post(
+            "/api/v1/auth/otp/verify",
+            json={"email": user.email, "code": wrong_code},
+        )
+        assert response.status_code == 401
+
+    locked_out = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"email": user.email, "code": real_code},
+    )
+    assert locked_out.status_code == 401

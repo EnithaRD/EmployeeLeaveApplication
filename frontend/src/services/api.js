@@ -64,6 +64,17 @@ export async function verifyOtp(email, code) {
 }
 
 
+export async function signupUser({ email, password, role }) {
+
+    const response = await api.post(
+        "/auth/signup",
+        { email, password, role }
+    );
+
+    return response.data;
+}
+
+
 export async function getCurrentUser(token) {
 
     const response = await api.get(

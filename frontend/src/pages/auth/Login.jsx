@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 import { requestOtp } from "../../services/api";
@@ -8,6 +8,9 @@ import { requestOtp } from "../../services/api";
 function Login() {
 
     const navigate = useNavigate();
+    const location = useLocation();
+    const signupSuccess = Boolean(location.state?.signupSuccess);
+
     const {
         user,
         login,
@@ -21,11 +24,9 @@ function Login() {
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
+    const [otpStep, setOtpStep] = useState("email");
     const [otpEmail, setOtpEmail] = useState("");
     const [otpCode, setOtpCode] = useState("");
-    const [otpSent, setOtpSent] = useState(false);
-    const [otpSending, setOtpSending] = useState(false);
-    const [otpInfo, setOtpInfo] = useState("");
 
 
     useEffect(() => {
@@ -40,8 +41,7 @@ function Login() {
 
         setMode(nextMode);
         setError("");
-        setOtpInfo("");
-        setOtpSent(false);
+        setOtpStep("email");
         setOtpCode("");
     };
 
@@ -71,28 +71,26 @@ function Login() {
     };
 
 
-    const handleSendOtp = async (event) => {
+    const handleRequestOtp = async (event) => {
 
         event.preventDefault();
 
         setError("");
-        setOtpInfo("");
-        setOtpSending(true);
+        setLoading(true);
 
         try {
 
             await requestOtp(otpEmail);
 
-            setOtpSent(true);
-            setOtpInfo(`If ${otpEmail} has an account, a login code was sent to it.`);
+            setOtpStep("code");
         } catch (error) {
 
             setError(
                 error.message ||
-                "Could not send a login code. Try again."
+                "Could not send the code. Please try again."
             );
         } finally {
-            setOtpSending(false);
+            setLoading(false);
         }
     };
 
@@ -113,7 +111,7 @@ function Login() {
 
             setError(
                 error.message ||
-                "That code is invalid or has expired."
+                "Invalid or expired code"
             );
         } finally {
             setLoading(false);
@@ -163,26 +161,31 @@ function Login() {
                             Login to your account
                         </p>
 
-                        <div className="mt-6 inline-flex rounded-2xl bg-slate-100 p-1 text-sm font-medium">
+                        {signupSuccess ? (
+                            <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                                Account created — sign in below.
+                            </div>
+                        ) : null}
+
+                        <div className="mt-6 inline-flex rounded-full border border-slate-200 bg-slate-100 p-1">
                             <button
                                 type="button"
                                 onClick={() => switchMode("password")}
-                                className={`rounded-xl px-4 py-2 transition ${
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                                     mode === "password"
-                                        ? "bg-white text-slate-900 shadow"
-                                        : "text-slate-500 hover:text-slate-700"
+                                        ? "bg-indigo-600 text-white shadow-sm"
+                                        : "text-slate-600 hover:bg-slate-200"
                                 }`}
                             >
                                 Password
                             </button>
-
                             <button
                                 type="button"
                                 onClick={() => switchMode("otp")}
-                                className={`rounded-xl px-4 py-2 transition ${
+                                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                                     mode === "otp"
-                                        ? "bg-white text-slate-900 shadow"
-                                        : "text-slate-500 hover:text-slate-700"
+                                        ? "bg-indigo-600 text-white shadow-sm"
+                                        : "text-slate-600 hover:bg-slate-200"
                                 }`}
                             >
                                 Email code
@@ -192,12 +195,6 @@ function Login() {
                         {error ? (
                             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
                                 {error}
-                            </div>
-                        ) : null}
-
-                        {otpInfo ? (
-                            <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                                {otpInfo}
                             </div>
                         ) : null}
 
@@ -252,9 +249,9 @@ function Login() {
                                     {loading ? "Signing in..." : "Sign In"}
                                 </button>
                             </form>
-                        ) : (
+                        ) : otpStep === "email" ? (
                             <form
-                                onSubmit={otpSent ? handleVerifyOtp : handleSendOtp}
+                                onSubmit={handleRequestOtp}
                                 className="mt-8 space-y-6"
                             >
                                 <div>
@@ -270,58 +267,87 @@ function Login() {
                                         type="email"
                                         value={otpEmail}
                                         onChange={(event) => setOtpEmail(event.target.value)}
-                                        disabled={otpSent}
-                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500"
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
                                         placeholder="employee@example.com"
                                         required
                                     />
                                 </div>
 
-                                {otpSent ? (
-                                    <div>
-                                        <label
-                                            htmlFor="otp-code"
-                                            className="block text-sm font-medium text-slate-700"
-                                        >
-                                            6-digit code
-                                        </label>
-
-                                        <input
-                                            id="otp-code"
-                                            type="text"
-                                            inputMode="numeric"
-                                            pattern="[0-9]{6}"
-                                            maxLength={6}
-                                            value={otpCode}
-                                            onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, ""))}
-                                            className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-center text-lg tracking-[0.4em] text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                                            placeholder="••••••"
-                                            required
-                                            autoFocus
-                                        />
-
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                >
+                                    {loading ? "Sending..." : "Send code"}
+                                </button>
+                            </form>
+                        ) : (
+                            <form
+                                onSubmit={handleVerifyOtp}
+                                className="mt-8 space-y-6"
+                            >
+                                <div>
+                                    <p className="text-sm text-slate-600">
+                                        Code sent to <span className="font-semibold text-slate-900">{otpEmail}</span>.{" "}
                                         <button
                                             type="button"
-                                            onClick={handleSendOtp}
-                                            disabled={otpSending}
-                                            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 disabled:text-slate-400"
+                                            onClick={() => setOtpStep("email")}
+                                            className="font-semibold text-indigo-600 hover:text-indigo-700"
                                         >
-                                            {otpSending ? "Resending..." : "Resend code"}
+                                            Change email
                                         </button>
-                                    </div>
-                                ) : null}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label
+                                        htmlFor="otp-code"
+                                        className="block text-sm font-medium text-slate-700"
+                                    >
+                                        Verification code
+                                    </label>
+
+                                    <input
+                                        id="otp-code"
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={6}
+                                        value={otpCode}
+                                        onChange={(event) => setOtpCode(event.target.value)}
+                                        className="mt-2 block w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                        placeholder="123456"
+                                        required
+                                    />
+                                </div>
 
                                 <button
                                     type="submit"
-                                    disabled={otpSent ? loading : otpSending}
+                                    disabled={loading}
                                     className="w-full rounded-2xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                                 >
-                                    {otpSent
-                                        ? (loading ? "Verifying..." : "Verify & sign in")
-                                        : (otpSending ? "Sending code..." : "Send login code")}
+                                    {loading ? "Verifying..." : "Verify & sign in"}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={handleRequestOtp}
+                                    disabled={loading}
+                                    className="w-full text-center text-sm font-semibold text-indigo-600 hover:text-indigo-700 disabled:cursor-not-allowed disabled:text-slate-400"
+                                >
+                                    Resend code
                                 </button>
                             </form>
                         )}
+
+                        <p className="mt-8 text-center text-sm text-slate-600">
+                            New here?{" "}
+                            <Link
+                                to="/signup"
+                                className="font-semibold text-indigo-600 hover:text-indigo-700"
+                            >
+                                Create an account
+                            </Link>
+                        </p>
                     </div>
                 </div>
             </div>
