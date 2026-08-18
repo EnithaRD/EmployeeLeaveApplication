@@ -18,6 +18,7 @@ from app.services.leave_balance_service import (
     get_available_days,
     get_or_create_balance,
 )
+from app.services.leave_summary_service import get_monthly_status_counts
 from app.schemas.leave_application import LeaveApplicationRead
 
 router = APIRouter(prefix="/leaves", tags=["leaves"])
@@ -213,6 +214,15 @@ def get_pending_count(
 
     count = db.query(func.count(LeaveApplication.id)).filter(LeaveApplication.status == "PENDING").scalar()
     return {"count": int(count or 0)}
+
+
+@router.get("/monthly-summary")
+def get_monthly_summary(
+    year: int = 2026,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["ADMIN"])),
+):
+    return get_monthly_status_counts(db, year)
 
 
 @router.get("/balances")

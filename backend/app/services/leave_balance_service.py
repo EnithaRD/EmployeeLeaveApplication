@@ -71,3 +71,4 @@ def calculate_working_days(start_date: date, end_date: date, holiday_dates: Iter
         current_date += timedelta(days=1)
 
     return working_days
+
