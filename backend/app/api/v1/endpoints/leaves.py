@@ -18,6 +18,7 @@ from app.services.leave_balance_service import (
     get_available_days,
     get_or_create_balance,
 )
+from app.services.leave_summary_service import get_monthly_status_counts
 from app.schemas.leave_application import LeaveApplicationRead
 
 router = APIRouter(prefix="/leaves", tags=["leaves"])
@@ -150,6 +151,50 @@ def cancel_leave(
     return leave
 
 
+@router.delete("/{leave_id}")
+def delete_leave(
+    leave_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    employee_id = resolve_employee_id(current_user)
+    if employee_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to determine employee identity.",
+        )
+
+    try:
+        leave = db.query(LeaveApplication).filter(LeaveApplication.id == leave_id).first()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete leave request.",
+        )
+
+    if not leave or leave.employee_id != employee_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found.")
+
+    if leave.status != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only pending leave requests can be deleted.",
+        )
+
+    try:
+        db.delete(leave)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete leave request.",
+        )
+
+    return {"message": "Leave request deleted successfully."}
+
+
 @router.get("/pending", response_model=List[LeaveApplicationRead])
 def get_pending_leaves(
     db: Session = Depends(get_db),
@@ -169,6 +214,15 @@ def get_pending_count(
 
     count = db.query(func.count(LeaveApplication.id)).filter(LeaveApplication.status == "PENDING").scalar()
     return {"count": int(count or 0)}
+
+
+@router.get("/monthly-summary")
+def get_monthly_summary(
+    year: int = 2026,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(["ADMIN"])),
+):
+    return get_monthly_status_counts(db, year)
 
 
 @router.get("/balances")
