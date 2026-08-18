@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import api from "../../services/api"
 import { useAuth } from "../../context/AuthContext"
+import MonthlyLeaveStackedChart from "../../components/MonthlyLeaveStackedChart"
 
 const SUMMARY_YEAR = 2026
 
@@ -87,14 +88,7 @@ export default function Dashboard() {
             {loading ? (
               <div className="text-sm text-slate-500">Loading chart data...</div>
             ) : (
-              <div className="space-y-1 text-sm text-slate-600">
-                {monthlySummary.map((row) => (
-                  <div key={row.month} className="flex items-center justify-between border-b border-slate-100 py-1">
-                    <span>Month {row.month}</span>
-                    <span>Approved: {row.approved} / Rejected: {row.rejected}</span>
-                  </div>
-                ))}
-              </div>
+              <MonthlyLeaveStackedChart data={monthlySummary} />
             )}
           </div>
         ) : (
