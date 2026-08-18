@@ -119,3 +119,84 @@ def test_monthly_summary_default_year_is_2026(client, db_session):
     assert response.status_code == 200
     september = next(m for m in response.json() if m["month"] == 9)
     assert september == {"month": 9, "approved": 1, "rejected": 0}
+
+
+# --- year query param: wrong type -------------------------------------------------
+
+
+def test_monthly_summary_with_non_numeric_year_returns_422(client, db_session):
+    _, _, headers = _create_user_with_token(db_session, "admin4@example.com", "ADMIN")
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=abc", headers=headers)
+
+    assert response.status_code == 422
+
+
+def test_monthly_summary_with_decimal_year_returns_422(client, db_session):
+    _, _, headers = _create_user_with_token(db_session, "admin5@example.com", "ADMIN")
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=2026.5", headers=headers)
+
+    assert response.status_code == 422
+
+
+def test_monthly_summary_with_empty_year_returns_422(client, db_session):
+    _, _, headers = _create_user_with_token(db_session, "admin6@example.com", "ADMIN")
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=", headers=headers)
+
+    assert response.status_code == 422
+
+
+# --- year query param: valid-looking but out-of-range values ----------------------
+
+
+def test_monthly_summary_with_negative_year_returns_200_with_all_zero_counts(client, db_session):
+    _, employee, headers = _create_user_with_token(db_session, "admin7@example.com", "ADMIN")
+
+    _create_leave(db_session, employee.id, "APPROVED", date(2026, 1, 1))
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=-1", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 12
+    assert all(row == {"month": row["month"], "approved": 0, "rejected": 0} for row in data)
+
+
+def test_monthly_summary_with_zero_year_returns_200_with_all_zero_counts(client, db_session):
+    _, _, headers = _create_user_with_token(db_session, "admin8@example.com", "ADMIN")
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=0", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 12
+    assert all(row == {"month": row["month"], "approved": 0, "rejected": 0} for row in data)
+
+
+# --- year boundary: adjacent-year leaves must not leak across the boundary --------
+
+
+def test_monthly_summary_does_not_leak_across_year_boundary(client, db_session):
+    _, employee, headers = _create_user_with_token(db_session, "admin9@example.com", "ADMIN")
+
+    _create_leave(db_session, employee.id, "APPROVED", date(2025, 12, 31))
+    _create_leave(db_session, employee.id, "REJECTED", date(2027, 1, 1))
+    _create_leave(db_session, employee.id, "APPROVED", date(2026, 12, 31))
+    _create_leave(db_session, employee.id, "REJECTED", date(2026, 1, 1))
+
+    response = client.get("/api/v1/leaves/monthly-summary?year=2026", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+
+    december = next(m for m in data if m["month"] == 12)
+    january = next(m for m in data if m["month"] == 1)
+    total_approved = sum(row["approved"] for row in data)
+    total_rejected = sum(row["rejected"] for row in data)
+
+    assert december == {"month": 12, "approved": 1, "rejected": 0}
+    assert january == {"month": 1, "approved": 0, "rejected": 1}
+    assert total_approved == 1
+    assert total_rejected == 1
