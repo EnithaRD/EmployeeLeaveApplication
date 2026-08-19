@@ -2,7 +2,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, constr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.api.v1.endpoints.auth import get_current_user, require_role
 from app.db.database import get_db
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
+from app.models.leave_application_document import LeaveApplicationDocument
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
 from app.models.user import User
@@ -334,3 +336,100 @@ def decide_leave(
     db.commit()
     db.refresh(leave)
     return leave
+
+
+def _get_sick_leave_or_404(db, leave_id, employee_id):
+    leave = db.query(LeaveApplication).filter(LeaveApplication.id == leave_id).first()
+    if not leave or leave.employee_id != employee_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found.")
+
+    leave_type = db.query(LeaveType).filter(LeaveType.id == leave.leave_type_id).first()
+    if not leave_type or leave_type.name != "Sick Leave":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document upload is only available for Sick Leave requests.",
+        )
+
+    return leave
+
+
+@router.post("/{leave_id}/document", status_code=status.HTTP_201_CREATED)
+async def upload_leave_document(
+    leave_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    employee_id = resolve_employee_id(current_user)
+    if employee_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to determine employee identity.",
+        )
+
+    leave = _get_sick_leave_or_404(db, leave_id, employee_id)
+
+    if leave.status != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A document can only be uploaded while the leave request is pending.",
+        )
+
+    file_data = await file.read()
+
+    document = (
+        db.query(LeaveApplicationDocument)
+        .filter(LeaveApplicationDocument.leave_application_id == leave.id)
+        .first()
+    )
+    if document is None:
+        document = LeaveApplicationDocument(leave_application_id=leave.id)
+
+    document.filename = file.filename or "document"
+    document.content_type = file.content_type or "application/octet-stream"
+    document.file_data = file_data
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    return {"id": document.id, "filename": document.filename, "content_type": document.content_type}
+
+
+@router.get("/{leave_id}/document")
+def get_leave_document(
+    leave_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    employee_id = resolve_employee_id(current_user)
+    if employee_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to determine employee identity.",
+        )
+
+    leave = db.query(LeaveApplication).filter(LeaveApplication.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found.")
+
+    is_owner = leave.employee_id == employee_id
+    if current_user.role != "MANAGER" and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a manager or the leave's owner can view this document.",
+        )
+
+    document = (
+        db.query(LeaveApplicationDocument)
+        .filter(LeaveApplicationDocument.leave_application_id == leave.id)
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No document uploaded for this leave request.")
+
+    return Response(
+        content=document.file_data,
+        media_type=document.content_type,
+        headers={"Content-Disposition": f'inline; filename="{document.filename}"'},
+    )
