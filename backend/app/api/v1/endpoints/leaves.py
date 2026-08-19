@@ -372,6 +372,20 @@ def decide_leave(
             detail=f"Only {current_step.approver_role} can decide on this leave request at its current stage.",
         )
 
+    if decision == "APPROVED":
+        leave_type = db.query(LeaveType).filter(LeaveType.id == leave.leave_type_id).first()
+        if leave_type is not None and leave_type.name == "Sick Leave":
+            document = (
+                db.query(LeaveApplicationDocument)
+                .filter(LeaveApplicationDocument.leave_application_id == leave.id)
+                .first()
+            )
+            if document is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This Sick Leave request cannot be approved until a supporting document is uploaded.",
+                )
+
     current_step.status = decision
     current_step.decided_by = current_user.id
     current_step.comment = payload.comment

@@ -64,6 +64,15 @@ export default function ApplyLeave() {
     setFeedback(null)
 
     try {
+      if (isSickLeave && !document) {
+        setFeedback({
+          type: "error",
+          message: "A supporting document is required for Sick Leave requests.",
+        })
+        setIsSubmitting(false)
+        return
+      }
+
       const response = await api.post("/leaves/apply", {
         leave_type_id: Number(selectedType),
         start_date: startDate,
@@ -166,7 +175,7 @@ export default function ApplyLeave() {
         {isSickLeave ? (
           <div>
             <label htmlFor="document" className="block text-sm font-medium text-slate-700">
-              Supporting document (optional)
+              Supporting document (required for Sick Leave)
             </label>
             <input
               id="document"
@@ -194,7 +203,7 @@ export default function ApplyLeave() {
           </div>
           <button
             type="submit"
-            disabled={isSubmitting || !selectedType || !startDate || !endDate}
+            disabled={isSubmitting || !selectedType || !startDate || !endDate || (isSickLeave && !document)}
             className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {isSubmitting ? "Submitting..." : "Submit request"}

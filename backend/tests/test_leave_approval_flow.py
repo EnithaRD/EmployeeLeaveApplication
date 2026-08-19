@@ -99,6 +99,37 @@ def test_employee_sick_leave_rejected_by_manager(client, db_session):
     assert response.json()["status"] == "REJECTED"
 
 
+def test_sick_leave_cannot_be_approved_without_document(client, db_session):
+    leave_type = _create_leave_type(db_session, "Sick Leave", ["MANAGER"])
+    _, _, employee_headers = _create_user_with_token(db_session, "employee-sickdoc@example.com", "EMPLOYEE")
+    _, _, manager_headers = _create_user_with_token(db_session, "manager-sickdoc@example.com", "MANAGER")
+
+    leave_id = _apply(client, employee_headers, leave_type.id).json()["id"]
+    response = _decide(client, manager_headers, leave_id, "APPROVED")
+
+    assert response.status_code == 400
+    assert "document" in response.json()["detail"].lower()
+
+
+def test_sick_leave_can_be_approved_after_document_uploaded(client, db_session):
+    leave_type = _create_leave_type(db_session, "Sick Leave", ["MANAGER"])
+    _, _, employee_headers = _create_user_with_token(db_session, "employee-sickdoc2@example.com", "EMPLOYEE")
+    _, _, manager_headers = _create_user_with_token(db_session, "manager-sickdoc2@example.com", "MANAGER")
+
+    leave_id = _apply(client, employee_headers, leave_type.id).json()["id"]
+    upload_response = client.post(
+        f"/api/v1/leaves/{leave_id}/document",
+        headers=employee_headers,
+        files={"file": ("note.pdf", b"file-bytes", "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+
+    response = _decide(client, manager_headers, leave_id, "APPROVED")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "APPROVED"
+
+
 def test_employee_long_leave_only_hr_can_decide(client, db_session):
     leave_type = _create_leave_type(db_session, "Long Leave", ["HR"])
     _, _, employee_headers = _create_user_with_token(db_session, "employee-long@example.com", "EMPLOYEE")
