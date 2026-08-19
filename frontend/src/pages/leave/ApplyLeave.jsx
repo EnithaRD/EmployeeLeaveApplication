@@ -17,6 +17,10 @@ export default function ApplyLeave() {
   const [availableBalance, setAvailableBalance] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedback, setFeedback] = useState(null)
+  const [document, setDocument] = useState(null)
+
+  const selectedLeaveTypeName = leaveTypes.find((type) => String(type.id) === String(selectedType))?.name
+  const isSickLeave = selectedLeaveTypeName === "Sick Leave"
 
   useEffect(() => {
     async function loadLeaveTypes() {
@@ -60,12 +64,20 @@ export default function ApplyLeave() {
     setFeedback(null)
 
     try {
-      await api.post("/leaves/apply", {
+      const response = await api.post("/leaves/apply", {
         leave_type_id: Number(selectedType),
         start_date: startDate,
         end_date: endDate,
         reason,
       })
+
+      if (isSickLeave && document) {
+        const formData = new FormData()
+        formData.append("file", document)
+        await api.post(`/leaves/${response.data.id}/document`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      }
 
       setFeedback({
         type: "success",
@@ -76,6 +88,7 @@ export default function ApplyLeave() {
       setEndDate("")
       setSelectedType("")
       setAvailableBalance(null)
+      setDocument(null)
     } catch (error) {
       const message = error.response?.data?.detail || "Unable to submit leave request."
       setFeedback({ type: "error", message })
@@ -149,6 +162,20 @@ export default function ApplyLeave() {
             placeholder="Enter a short explanation for your leave request"
           />
         </div>
+
+        {isSickLeave ? (
+          <div>
+            <label htmlFor="document" className="block text-sm font-medium text-slate-700">
+              Supporting document (optional)
+            </label>
+            <input
+              id="document"
+              type="file"
+              onChange={(event) => setDocument(event.target.files?.[0] || null)}
+              className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
+        ) : null}
 
         <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
           <p className="font-medium">Available balance</p>
