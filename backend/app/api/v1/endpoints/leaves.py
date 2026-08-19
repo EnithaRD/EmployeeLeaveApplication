@@ -13,8 +13,10 @@ from app.db.database import get_db
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_application_document import LeaveApplicationDocument
+from app.models.leave_application_step import LeaveApplicationStep
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
+from app.models.leave_type_approval_step import LeaveTypeApprovalStep
 from app.models.user import User
 from app.services.leave_balance_service import (
     calculate_working_days,
@@ -46,17 +48,29 @@ def resolve_employee_id(current_user):
     return employee_id
 
 
-def get_requester_role(db, leave):
-    requester = db.query(User).filter(User.id == leave.employee_id).first()
-    return requester.role if requester else None
+def get_current_step(db, leave):
+    return (
+        db.query(LeaveApplicationStep)
+        .filter(
+            LeaveApplicationStep.leave_application_id == leave.id,
+            LeaveApplicationStep.status == "PENDING",
+        )
+        .first()
+    )
 
 
-def _pending_leaves_for(db, current_user):
-    target_role = "EMPLOYEE" if current_user.role == "MANAGER" else "MANAGER"
+def _pending_leaves_for_role(db, role):
     return (
         db.query(LeaveApplication)
-        .join(User, User.id == LeaveApplication.employee_id)
-        .filter(LeaveApplication.status == "PENDING", User.role == target_role)
+        .join(
+            LeaveApplicationStep,
+            LeaveApplicationStep.leave_application_id == LeaveApplication.id,
+        )
+        .filter(
+            LeaveApplication.status == "PENDING",
+            LeaveApplicationStep.status == "PENDING",
+            LeaveApplicationStep.approver_role == role,
+        )
     )
 
 
@@ -66,10 +80,10 @@ def apply_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role not in {"EMPLOYEE", "MANAGER"}:
+    if current_user.role not in {"EMPLOYEE", "MANAGER", "HR"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only employees or managers may apply for leave.",
+            detail="Only employees, managers, or HR may apply for leave.",
         )
 
     employee_id = resolve_employee_id(current_user)
@@ -106,6 +120,23 @@ def apply_leave(
             detail=f"Insufficient available leave balance. Requested {days_count}, available {available}.",
         )
 
+    approval_steps = []
+    if current_user.role == "EMPLOYEE":
+        configured_steps = (
+            db.query(LeaveTypeApprovalStep)
+            .filter(LeaveTypeApprovalStep.leave_type_id == payload.leave_type_id)
+            .order_by(LeaveTypeApprovalStep.step_order)
+            .all()
+        )
+        if not configured_steps:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No approval flow is configured for this leave type.",
+            )
+        approval_steps = [step.approver_role for step in configured_steps]
+    else:
+        approval_steps = ["ADMIN"]
+
     leave = LeaveApplication(
         employee_id=employee_id,
         leave_type_id=payload.leave_type_id,
@@ -119,6 +150,18 @@ def apply_leave(
     db.add(leave)
     db.commit()
     db.refresh(leave)
+
+    for step_order, approver_role in enumerate(approval_steps, start=1):
+        db.add(
+            LeaveApplicationStep(
+                leave_application_id=leave.id,
+                step_order=step_order,
+                approver_role=approver_role,
+                status="PENDING" if step_order == 1 else "WAITING",
+            )
+        )
+    db.commit()
+
     return leave
 
 
@@ -215,9 +258,9 @@ def delete_leave(
 @router.get("/pending", response_model=List[LeaveApplicationRead])
 def get_pending_leaves(
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(["MANAGER", "ADMIN"])),
+    current_user=Depends(require_role(["MANAGER", "HR", "ADMIN"])),
 ):
-    leaves = _pending_leaves_for(db, current_user).all()
+    leaves = _pending_leaves_for_role(db, current_user.role).all()
     return leaves
 
 
@@ -226,10 +269,10 @@ def get_pending_count(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role not in {"ADMIN", "MANAGER"}:
+    if current_user.role not in {"MANAGER", "HR", "ADMIN"}:
         return {"count": 0}
 
-    count = _pending_leaves_for(db, current_user).count()
+    count = _pending_leaves_for_role(db, current_user.role).count()
     return {"count": int(count or 0)}
 
 
@@ -296,7 +339,7 @@ def decide_leave(
     leave_id: int,
     payload: LeaveDecisionRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(["MANAGER", "ADMIN"])),
+    current_user=Depends(require_role(["MANAGER", "HR", "ADMIN"])),
 ):
     decision = payload.action.upper()
     if decision not in {"APPROVED", "REJECTED"}:
@@ -309,29 +352,55 @@ def decide_leave(
     if not leave or leave.status != "PENDING":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending leave request not found.")
 
-    requester_role = get_requester_role(db, leave)
-
-    if requester_role == "EMPLOYEE" and current_user.role != "MANAGER":
+    if resolve_employee_id(current_user) == leave.employee_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a manager can decide on an employee's leave request.",
+            detail="You cannot decide on your own leave request.",
         )
 
-    if requester_role == "MANAGER" and current_user.role != "ADMIN":
+    current_step = get_current_step(db, leave)
+    if current_step is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active approval step found for this leave request.",
+        )
+
+    if current_user.role != current_step.approver_role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only an admin can decide on a manager's leave request.",
+            detail=f"Only {current_step.approver_role} can decide on this leave request at its current stage.",
         )
 
-    leave.status = decision
-    leave.approver_id = resolve_employee_id(current_user)
-    leave.approver_comment = payload.comment
-    leave.decided_at = datetime.utcnow()
+    current_step.status = decision
+    current_step.decided_by = resolve_employee_id(current_user)
+    current_step.comment = payload.comment
+    current_step.decided_at = datetime.utcnow()
 
-    if decision == "APPROVED":
-        balance = get_or_create_balance(db, leave.employee_id, leave.leave_type_id, leave.start_date.year)
-        balance.used = balance.used + int(leave.days_count)
-        db.add(balance)
+    if decision == "REJECTED":
+        leave.status = "REJECTED"
+        leave.approver_id = resolve_employee_id(current_user)
+        leave.approver_comment = payload.comment
+        leave.decided_at = datetime.utcnow()
+    else:
+        next_step = (
+            db.query(LeaveApplicationStep)
+            .filter(
+                LeaveApplicationStep.leave_application_id == leave.id,
+                LeaveApplicationStep.step_order == current_step.step_order + 1,
+            )
+            .first()
+        )
+        if next_step is not None:
+            next_step.status = "PENDING"
+        else:
+            leave.status = "APPROVED"
+            leave.approver_id = resolve_employee_id(current_user)
+            leave.approver_comment = payload.comment
+            leave.decided_at = datetime.utcnow()
+
+            balance = get_or_create_balance(db, leave.employee_id, leave.leave_type_id, leave.start_date.year)
+            balance.used = balance.used + int(leave.days_count)
+            db.add(balance)
 
     db.commit()
     db.refresh(leave)
