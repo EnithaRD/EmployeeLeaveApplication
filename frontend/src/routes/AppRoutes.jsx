@@ -29,6 +29,7 @@ function AppShell({ children }) {
         : "Employee";
     const displayName = user?.email || roleLabel;
     const canApplyLeave = user?.role === "EMPLOYEE" || user?.role === "MANAGER";
+    const canApprove = user?.role === "MANAGER" || user?.role === "HR" || user?.role === "ADMIN";
     const isAdmin = user?.role === "ADMIN";
 
 
@@ -78,9 +79,11 @@ function AppShell({ children }) {
                                 My Leaves
                             </NavLink>
                         ) : null}
-                        <NavLink className={navLinkClassName} to="/approvals">
-                            Approvals
-                        </NavLink>
+                        {canApprove ? (
+                            <NavLink className={navLinkClassName} to="/approvals">
+                                Approvals
+                            </NavLink>
+                        ) : null}
                         {isAdmin ? (
                             <NavLink className={navLinkClassName} to="/admin/approval-routing">
                                 Approval Routing
@@ -172,7 +175,7 @@ function AppRoutes() {
             <Route
                 path="/approvals"
                 element={
-                    <ProtectedRoute>
+                    <ProtectedRoute allowedRoles={["MANAGER", "HR", "ADMIN"]}>
                         <AppShell>
                             <Approvals />
                         </AppShell>
