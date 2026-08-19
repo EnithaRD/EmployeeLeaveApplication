@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.auth import get_current_user, require_role
 from app.db.database import get_db
+from app.models.employee import Employee
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_balance import LeaveBalance
@@ -44,11 +45,9 @@ class LeaveDecisionRequest(BaseModel):
     comment: str | None = None
 
 
-def resolve_employee_id(current_user):
-    employee_id = getattr(current_user, "employee_id", None)
-    if employee_id is None:
-        employee_id = getattr(current_user, "id", None)
-    return employee_id
+def resolve_employee_id(db, current_user):
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    return employee.id if employee else None
 
 
 def get_approval_chain(leave) -> list[str]:
@@ -86,7 +85,7 @@ def apply_leave(
             detail="Only employees or managers may apply for leave.",
         )
 
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -173,7 +172,7 @@ def get_my_leaves(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -190,7 +189,7 @@ def cancel_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -220,7 +219,7 @@ def delete_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -294,7 +293,7 @@ def get_leave_balances(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -327,7 +326,7 @@ def get_available_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -363,7 +362,7 @@ def decide_leave(
             detail=f"Only {required_role} can decide on this leave request at its current stage.",
         )
 
-    leave.approver_id = resolve_employee_id(current_user)
+    leave.approver_id = resolve_employee_id(db, current_user)
     leave.approver_comment = payload.comment
 
     if decision == "REJECTED":
@@ -408,7 +407,7 @@ def download_certificate(
             detail="No medical certificate attached to this leave request.",
         )
 
-    is_owner = leave.employee_id == resolve_employee_id(current_user)
+    is_owner = leave.employee_id == resolve_employee_id(db, current_user)
     is_approver = current_user.role in set(APPROVER_ROLES)
 
     if not (is_owner or is_approver):
