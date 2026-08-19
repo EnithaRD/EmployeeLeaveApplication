@@ -117,7 +117,7 @@ export default function Approvals() {
               pendingLeaves.map((leave) => (
                 <tr key={leave.id}>
                   <td className="whitespace-nowrap px-6 py-5 text-slate-800">{leave.employee_id}</td>
-                  <td className="px-6 py-5 text-slate-600">{leave.leave_type_id}</td>
+                  <td className="px-6 py-5 text-slate-600">{leaveTypesById[leave.leave_type_id] || leave.leave_type_id}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.start_date} → {leave.end_date}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.days_count}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.reason || "No reason provided"}</td>
