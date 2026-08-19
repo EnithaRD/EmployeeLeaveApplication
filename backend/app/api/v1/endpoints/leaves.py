@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.auth import get_current_user, require_role
 from app.db.database import get_db
+from app.models.employee import Employee
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_application_document import LeaveApplicationDocument
@@ -41,11 +42,11 @@ class LeaveDecisionRequest(BaseModel):
     comment: str | None = None
 
 
-def resolve_employee_id(current_user):
-    employee_id = getattr(current_user, "employee_id", None)
-    if employee_id is None:
-        employee_id = getattr(current_user, "id", None)
-    return employee_id
+def resolve_employee_id(db, current_user):
+    employee = db.query(Employee).filter(Employee.user_id == current_user.id).first()
+    if employee is not None:
+        return employee.id
+    return getattr(current_user, "id", None)
 
 
 def get_current_step(db, leave):
@@ -86,7 +87,7 @@ def apply_leave(
             detail="Only employees, managers, or HR may apply for leave.",
         )
 
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -170,7 +171,7 @@ def get_my_leaves(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -187,7 +188,7 @@ def cancel_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -217,7 +218,7 @@ def delete_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -290,7 +291,7 @@ def get_leave_balances(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -323,7 +324,7 @@ def get_available_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -352,7 +353,7 @@ def decide_leave(
     if not leave or leave.status != "PENDING":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending leave request not found.")
 
-    if resolve_employee_id(current_user) == leave.employee_id:
+    if resolve_employee_id(db, current_user) == leave.employee_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You cannot decide on your own leave request.",
@@ -372,13 +373,13 @@ def decide_leave(
         )
 
     current_step.status = decision
-    current_step.decided_by = resolve_employee_id(current_user)
+    current_step.decided_by = resolve_employee_id(db, current_user)
     current_step.comment = payload.comment
     current_step.decided_at = datetime.utcnow()
 
     if decision == "REJECTED":
         leave.status = "REJECTED"
-        leave.approver_id = resolve_employee_id(current_user)
+        leave.approver_id = resolve_employee_id(db, current_user)
         leave.approver_comment = payload.comment
         leave.decided_at = datetime.utcnow()
     else:
@@ -394,7 +395,7 @@ def decide_leave(
             next_step.status = "PENDING"
         else:
             leave.status = "APPROVED"
-            leave.approver_id = resolve_employee_id(current_user)
+            leave.approver_id = resolve_employee_id(db, current_user)
             leave.approver_comment = payload.comment
             leave.decided_at = datetime.utcnow()
 
@@ -429,7 +430,7 @@ async def upload_leave_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -471,7 +472,7 @@ def get_leave_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee_id = resolve_employee_id(current_user)
+    employee_id = resolve_employee_id(db, current_user)
     if employee_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
