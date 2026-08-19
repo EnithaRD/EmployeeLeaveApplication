@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Boolean, Column, Integer, String
 from app.db.base import Base
 
 
@@ -9,3 +9,4 @@ class LeaveType(Base):
     name = Column(String(50), nullable=False, unique=True)
     default_annual_quota = Column(Integer, nullable=False, default=0)
     description = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")

@@ -141,6 +141,7 @@ def seed_demo_data():
                 name="Earned Leave",
                 default_annual_quota=15,
                 description="Annual/vacation leave",
+                is_active=False,
             ),
             LeaveType(
                 name="Long Leave",
