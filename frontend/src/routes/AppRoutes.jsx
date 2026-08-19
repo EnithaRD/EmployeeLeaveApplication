@@ -13,6 +13,7 @@ import ApplyLeave from "../pages/leave/ApplyLeave";
 import Approvals from "../pages/leave/Approvals";
 import Dashboard from "../pages/leave/Dashboard";
 import MyLeaves from "../pages/leave/MyLeaves";
+import ApprovalFlowConfig from "../pages/admin/ApprovalFlowConfig";
 import ProtectedRoute from "./ProtectedRoute";
 
 
@@ -27,7 +28,8 @@ function AppShell({ children }) {
         ? user.role.charAt(0) + user.role.slice(1).toLowerCase()
         : "Employee";
     const displayName = user?.email || roleLabel;
-    const canApplyLeave = user?.role === "EMPLOYEE" || user?.role === "MANAGER";
+    const canApplyLeave = user?.role === "EMPLOYEE" || user?.role === "MANAGER" || user?.role === "HR";
+    const isAdmin = user?.role === "ADMIN";
 
 
     const navLinkClassName = ({ isActive }) =>
@@ -79,6 +81,11 @@ function AppShell({ children }) {
                         <NavLink className={navLinkClassName} to="/approvals">
                             Approvals
                         </NavLink>
+                        {isAdmin ? (
+                            <NavLink className={navLinkClassName} to="/admin/approval-flows">
+                                Approval Flows
+                            </NavLink>
+                        ) : null}
                         <button
                             type="button"
                             onClick={logout}
@@ -141,7 +148,7 @@ function AppRoutes() {
             <Route
                 path="/apply"
                 element={
-                    <ProtectedRoute allowedRoles={["EMPLOYEE", "MANAGER"]}>
+                    <ProtectedRoute allowedRoles={["EMPLOYEE", "MANAGER", "HR"]}>
                         <AppShell>
                             <ApplyLeave />
                         </AppShell>
@@ -153,9 +160,21 @@ function AppRoutes() {
             <Route
                 path="/my-leaves"
                 element={
-                    <ProtectedRoute allowedRoles={["EMPLOYEE", "MANAGER"]}>
+                    <ProtectedRoute allowedRoles={["EMPLOYEE", "MANAGER", "HR"]}>
                         <AppShell>
                             <MyLeaves />
+                        </AppShell>
+                    </ProtectedRoute>
+                }
+            />
+
+
+            <Route
+                path="/admin/approval-flows"
+                element={
+                    <ProtectedRoute allowedRoles={["ADMIN"]}>
+                        <AppShell>
+                            <ApprovalFlowConfig />
                         </AppShell>
                     </ProtectedRoute>
                 }
