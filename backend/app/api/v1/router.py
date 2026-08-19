@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.endpoints.approval_flows import router as approval_flows_router
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.leave_types import router as leave_types_router
 from app.api.v1.endpoints.leaves import router as leaves_router
@@ -16,3 +17,4 @@ def api_root():
 router.include_router(auth_router)
 router.include_router(leave_types_router)
 router.include_router(leaves_router)
+router.include_router(approval_flows_router)
