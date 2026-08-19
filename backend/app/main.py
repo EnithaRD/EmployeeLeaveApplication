@@ -9,6 +9,7 @@ from app.models.department import Department
 from app.models.employee import Employee
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
+from app.models.leave_application_document import LeaveApplicationDocument
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
 from app.models.otp_code import OtpCode
