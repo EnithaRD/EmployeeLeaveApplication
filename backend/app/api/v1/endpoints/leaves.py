@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, constr
-from sqlalchemy import func, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.auth import get_current_user, require_role
@@ -13,6 +13,7 @@ from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
+from app.models.user import User
 from app.services.leave_balance_service import (
     calculate_working_days,
     get_available_days,
@@ -43,16 +44,30 @@ def resolve_employee_id(current_user):
     return employee_id
 
 
+def get_requester_role(db, leave):
+    requester = db.query(User).filter(User.id == leave.employee_id).first()
+    return requester.role if requester else None
+
+
+def _pending_leaves_for(db, current_user):
+    target_role = "EMPLOYEE" if current_user.role == "MANAGER" else "MANAGER"
+    return (
+        db.query(LeaveApplication)
+        .join(User, User.id == LeaveApplication.employee_id)
+        .filter(LeaveApplication.status == "PENDING", User.role == target_role)
+    )
+
+
 @router.post("/apply", response_model=LeaveApplicationRead)
 def apply_leave(
     payload: LeaveApplyRequest,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role != "EMPLOYEE":
+    if current_user.role not in {"EMPLOYEE", "MANAGER"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only employees may apply for leave.",
+            detail="Only employees or managers may apply for leave.",
         )
 
     employee_id = resolve_employee_id(current_user)
@@ -200,7 +215,7 @@ def get_pending_leaves(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(["MANAGER", "ADMIN"])),
 ):
-    leaves = db.query(LeaveApplication).filter(LeaveApplication.status == "PENDING").all()
+    leaves = _pending_leaves_for(db, current_user).all()
     return leaves
 
 
@@ -212,7 +227,7 @@ def get_pending_count(
     if current_user.role not in {"ADMIN", "MANAGER"}:
         return {"count": 0}
 
-    count = db.query(func.count(LeaveApplication.id)).filter(LeaveApplication.status == "PENDING").scalar()
+    count = _pending_leaves_for(db, current_user).count()
     return {"count": int(count or 0)}
 
 
@@ -292,9 +307,19 @@ def decide_leave(
     if not leave or leave.status != "PENDING":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending leave request not found.")
 
-    if current_user.role == "MANAGER":
-        # Managers may decide leave requests in this simplified demo version.
-        pass
+    requester_role = get_requester_role(db, leave)
+
+    if requester_role == "EMPLOYEE" and current_user.role != "MANAGER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a manager can decide on an employee's leave request.",
+        )
+
+    if requester_role == "MANAGER" and current_user.role != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an admin can decide on a manager's leave request.",
+        )
 
     leave.status = decision
     leave.approver_id = resolve_employee_id(current_user)
