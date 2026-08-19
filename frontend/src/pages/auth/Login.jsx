@@ -131,22 +131,26 @@ function Login() {
                             Fast, role-based leave tracking for the whole team.
                         </h1>
                         <p className="mt-4 max-w-xl text-sm leading-6 text-slate-300 lg:text-base">
-                            Sign in as <span className="font-semibold text-white">admin</span>, <span className="font-semibold text-white">manager</span>, or <span className="font-semibold text-white">employee</span> to explore the app.
+                            Sign in as <span className="font-semibold text-white">admin</span>, <span className="font-semibold text-white">manager</span>, <span className="font-semibold text-white">HR</span>, or <span className="font-semibold text-white">employee</span> to explore the app.
                         </p>
                     </div>
 
-                    <div className="mt-10 grid gap-3 sm:grid-cols-3">
+                    <div className="mt-10 grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Login</p>
                             <p className="mt-2 text-sm text-white">Use alias or email</p>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Password</p>
-                            <p className="mt-2 text-sm text-white">password</p>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Roles</p>
+                            <p className="mt-2 text-sm text-white">Admin, Manager, HR, Employee</p>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Roles</p>
-                            <p className="mt-2 text-sm text-white">Admin, Manager, Employee</p>
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Admin / Manager / Employee</p>
+                            <p className="mt-2 text-sm text-white">alias + password <span className="font-mono">password</span></p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">HR</p>
+                            <p className="mt-2 text-sm text-white break-all">hr@gmail.com / <span className="font-mono">asdfg</span></p>
                         </div>
                     </div>
                 </div>

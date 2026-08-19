@@ -60,14 +60,15 @@ def seed_demo_data():
             db.refresh(general_department)
 
         role_users = {
-            "admin@example.com": ("Admin User", "ADMIN"),
-            "manager@example.com": ("Manager User", "MANAGER"),
-            "hr@example.com": ("HR User", "HR"),
-            "employee@example.com": ("Employee User", "EMPLOYEE"),
+            "admin@example.com": ("Admin User", "ADMIN", "password"),
+            "manager@example.com": ("Manager User", "MANAGER", "password"),
+            "hr@example.com": ("HR User", "HR", "password"),
+            "hr@gmail.com": ("HR User", "HR", "asdfg"),
+            "employee@example.com": ("Employee User", "EMPLOYEE", "password"),
         }
 
         users_by_email = {}
-        for email, (_, role) in role_users.items():
+        for email, (_, role, password) in role_users.items():
             user = (
                 db.query(User)
                 .filter(User.email == email)
@@ -76,7 +77,7 @@ def seed_demo_data():
             if user is None:
                 user = User(
                     email=email,
-                    password="password",
+                    password=password,
                     role=role,
                     is_active=True,
                 )
@@ -98,6 +99,11 @@ def seed_demo_data():
             ),
             (
                 "hr@example.com",
+                "HR User",
+                users_by_email["admin@example.com"].id,
+            ),
+            (
+                "hr@gmail.com",
                 "HR User",
                 users_by_email["admin@example.com"].id,
             ),
