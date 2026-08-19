@@ -373,7 +373,7 @@ def decide_leave(
         )
 
     current_step.status = decision
-    current_step.decided_by = resolve_employee_id(db, current_user)
+    current_step.decided_by = current_user.id
     current_step.comment = payload.comment
     current_step.decided_at = datetime.utcnow()
 
