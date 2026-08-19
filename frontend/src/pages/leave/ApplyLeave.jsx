@@ -14,9 +14,17 @@ export default function ApplyLeave() {
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [reason, setReason] = useState("")
+  const [certificateFile, setCertificateFile] = useState(null)
+  const [certificateError, setCertificateError] = useState(null)
   const [availableBalance, setAvailableBalance] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedback, setFeedback] = useState(null)
+
+  const ALLOWED_CERTIFICATE_TYPES = ["application/pdf", "image/jpeg", "image/png"]
+  const MAX_CERTIFICATE_SIZE_BYTES = 5 * 1024 * 1024
+
+  const selectedLeaveTypeName = leaveTypes.find((type) => String(type.id) === String(selectedType))?.name || ""
+  const isSickLeave = selectedLeaveTypeName.trim().toLowerCase() === "sick leave"
 
   useEffect(() => {
     async function loadLeaveTypes() {
@@ -54,17 +62,61 @@ export default function ApplyLeave() {
     loadAvailable()
   }, [selectedType])
 
+  useEffect(() => {
+    setCertificateFile(null)
+    setCertificateError(null)
+  }, [selectedType])
+
+  const handleCertificateChange = (event) => {
+    const file = event.target.files?.[0] || null
+
+    if (!file) {
+      setCertificateFile(null)
+      setCertificateError(null)
+      return
+    }
+
+    if (!ALLOWED_CERTIFICATE_TYPES.includes(file.type)) {
+      setCertificateFile(null)
+      setCertificateError("Unsupported file type. Please upload a PDF, JPG, or PNG file.")
+      event.target.value = ""
+      return
+    }
+
+    if (file.size > MAX_CERTIFICATE_SIZE_BYTES) {
+      setCertificateFile(null)
+      setCertificateError("File is too large. Maximum allowed size is 5MB.")
+      event.target.value = ""
+      return
+    }
+
+    setCertificateFile(file)
+    setCertificateError(null)
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
+
+    if (isSickLeave && !certificateFile) {
+      setCertificateError("A medical certificate is required for Sick Leave.")
+      return
+    }
+
     setIsSubmitting(true)
     setFeedback(null)
 
     try {
-      await api.post("/leaves/apply", {
-        leave_type_id: Number(selectedType),
-        start_date: startDate,
-        end_date: endDate,
-        reason,
+      const formData = new FormData()
+      formData.append("leave_type_id", Number(selectedType))
+      formData.append("start_date", startDate)
+      formData.append("end_date", endDate)
+      formData.append("reason", reason)
+      if (certificateFile) {
+        formData.append("medical_certificate", certificateFile)
+      }
+
+      await api.post("/leaves/apply", formData, {
+        headers: { "Content-Type": undefined },
       })
 
       setFeedback({
@@ -76,6 +128,8 @@ export default function ApplyLeave() {
       setEndDate("")
       setSelectedType("")
       setAvailableBalance(null)
+      setCertificateFile(null)
+      setCertificateError(null)
     } catch (error) {
       const message = error.response?.data?.detail || "Unable to submit leave request."
       setFeedback({ type: "error", message })
@@ -138,6 +192,28 @@ export default function ApplyLeave() {
           </div>
         </div>
 
+        {isSickLeave ? (
+          <div>
+            <label htmlFor="medicalCertificate" className="block text-sm font-medium text-slate-700">
+              Medical certificate <span className="text-red-600">(required)</span>
+            </label>
+            <input
+              id="medicalCertificate"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={handleCertificateChange}
+              className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            />
+            <p className="mt-1 text-xs text-slate-500">PDF, JPG, or PNG. Maximum size 5MB.</p>
+            {certificateFile ? (
+              <p className="mt-1 text-xs text-slate-600">Selected file: {certificateFile.name}</p>
+            ) : null}
+            {certificateError ? (
+              <p className="mt-1 text-xs text-red-600">{certificateError}</p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div>
           <label htmlFor="reason" className="block text-sm font-medium text-slate-700">Reason</label>
           <textarea
@@ -167,7 +243,7 @@ export default function ApplyLeave() {
           </div>
           <button
             type="submit"
-            disabled={isSubmitting || !selectedType || !startDate || !endDate}
+            disabled={isSubmitting || !selectedType || !startDate || !endDate || (isSickLeave && !certificateFile)}
             className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {isSubmitting ? "Submitting..." : "Submit request"}

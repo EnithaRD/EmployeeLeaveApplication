@@ -25,3 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Uploaded medical certificate files (not committed; stored per-environment)
+backend/storage/

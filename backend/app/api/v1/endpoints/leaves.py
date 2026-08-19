@@ -2,7 +2,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, constr
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
+from app.models.medical_certificate import MedicalCertificate
 from app.models.user import User
 from app.services.leave_balance_service import (
     calculate_working_days,
@@ -20,9 +22,12 @@ from app.services.leave_balance_service import (
     get_or_create_balance,
 )
 from app.services.leave_summary_service import get_monthly_status_counts
+from app.services.medical_certificate_service import resolve_certificate_path, save_certificate
 from app.schemas.leave_application import LeaveApplicationRead
 
 router = APIRouter(prefix="/leaves", tags=["leaves"])
+
+SICK_LEAVE_TYPE_NAME = "sick leave"
 
 
 class LeaveApplyRequest(BaseModel):
@@ -60,7 +65,11 @@ def _pending_leaves_for(db, current_user):
 
 @router.post("/apply", response_model=LeaveApplicationRead)
 def apply_leave(
-    payload: LeaveApplyRequest,
+    leave_type_id: int = Form(...),
+    start_date: date = Form(...),
+    end_date: date = Form(...),
+    reason: str | None = Form(None),
+    medical_certificate: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -77,19 +86,33 @@ def apply_leave(
             detail="Unable to determine employee identity.",
         )
 
-    if payload.start_date > payload.end_date:
+    if start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="start_date must be on or before end_date.",
         )
 
+    leave_type = db.query(LeaveType).filter(LeaveType.id == leave_type_id).first()
+    if leave_type is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unknown leave type.",
+        )
+
+    is_sick_leave = leave_type.name.strip().lower() == SICK_LEAVE_TYPE_NAME
+    if is_sick_leave and (medical_certificate is None or not medical_certificate.filename):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A medical certificate is required for Sick Leave applications.",
+        )
+
     holidays = (
         db.query(Holiday)
-        .filter(Holiday.holiday_date.between(payload.start_date, payload.end_date))
+        .filter(Holiday.holiday_date.between(start_date, end_date))
         .all()
     )
     holiday_dates = [holiday.holiday_date for holiday in holidays]
-    days_count = calculate_working_days(payload.start_date, payload.end_date, holiday_dates)
+    days_count = calculate_working_days(start_date, end_date, holiday_dates)
 
     if days_count <= 0:
         raise HTTPException(
@@ -97,26 +120,40 @@ def apply_leave(
             detail="Selected date range does not contain any working days.",
         )
 
-    available = get_available_days(db, employee_id, payload.leave_type_id, payload.start_date.year)
+    available = get_available_days(db, employee_id, leave_type_id, start_date.year)
     if available < days_count:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Insufficient available leave balance. Requested {days_count}, available {available}.",
         )
 
+    # Validate before writing anything so a rejected upload never leaves an orphaned leave row.
+    certificate_data = None
+    if medical_certificate is not None and medical_certificate.filename:
+        certificate_data = save_certificate(medical_certificate)
+
     leave = LeaveApplication(
         employee_id=employee_id,
-        leave_type_id=payload.leave_type_id,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
+        leave_type_id=leave_type_id,
+        start_date=start_date,
+        end_date=end_date,
         days_count=Decimal(days_count),
-        reason=payload.reason,
+        reason=reason,
         status="PENDING",
         applied_at=datetime.utcnow(),
     )
     db.add(leave)
     db.commit()
     db.refresh(leave)
+
+    if certificate_data is not None:
+        certificate = MedicalCertificate(
+            leave_application_id=leave.id,
+            **certificate_data,
+        )
+        db.add(certificate)
+        db.commit()
+
     return leave
 
 
@@ -334,3 +371,46 @@ def decide_leave(
     db.commit()
     db.refresh(leave)
     return leave
+
+
+@router.get("/{leave_id}/certificate")
+def download_certificate(
+    leave_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    leave = db.query(LeaveApplication).filter(LeaveApplication.id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found.")
+
+    certificate = (
+        db.query(MedicalCertificate)
+        .filter(MedicalCertificate.leave_application_id == leave_id)
+        .first()
+    )
+    if not certificate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No medical certificate attached to this leave request.",
+        )
+
+    requester_role = get_requester_role(db, leave)
+    is_owner = leave.employee_id == resolve_employee_id(current_user)
+    is_reviewing_manager = current_user.role == "MANAGER" and requester_role == "EMPLOYEE"
+    is_admin = current_user.role == "ADMIN"
+
+    if not (is_owner or is_reviewing_manager or is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to access this medical certificate.",
+        )
+
+    file_path = resolve_certificate_path(certificate.stored_filename)
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certificate file is missing.")
+
+    return FileResponse(
+        path=file_path,
+        media_type=certificate.content_type,
+        filename=certificate.original_filename,
+    )

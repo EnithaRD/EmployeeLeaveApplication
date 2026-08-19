@@ -66,7 +66,7 @@ def test_manager_can_apply_for_leave(client, db_session):
 
     response = client.post(
         "/api/v1/leaves/apply",
-        json={
+        data={
             "leave_type_id": leave_type.id,
             "start_date": str(A_WEEKDAY),
             "end_date": str(A_WEEKDAY),
@@ -85,7 +85,7 @@ def test_admin_cannot_apply_for_leave(client, db_session):
 
     response = client.post(
         "/api/v1/leaves/apply",
-        json={
+        data={
             "leave_type_id": leave_type.id,
             "start_date": str(A_WEEKDAY),
             "end_date": str(A_WEEKDAY),
