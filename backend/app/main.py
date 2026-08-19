@@ -126,32 +126,33 @@ def seed_demo_data():
                     )
                 )
 
-        if db.query(LeaveType).count() == 0:
-            db.add_all(
-                [
-                    LeaveType(
-                        name="Emergency Leave",
-                        default_annual_quota=5,
-                        description="Urgent, unplanned leave",
-                    ),
-                    LeaveType(
-                        name="Casual Leave",
-                        default_annual_quota=8,
-                        description="Short personal leave",
-                    ),
-                    LeaveType(
-                        name="Sick Leave",
-                        default_annual_quota=10,
-                        description="Medical leave",
-                    ),
-                    LeaveType(
-                        name="Long Leave",
-                        default_annual_quota=15,
-                        description="Extended leave",
-                    ),
-                ]
-            )
-            db.commit()
+        desired_leave_types = [
+            LeaveType(
+                name="Emergency Leave",
+                default_annual_quota=5,
+                description="Urgent, unplanned leave",
+            ),
+            LeaveType(
+                name="Casual Leave",
+                default_annual_quota=8,
+                description="Short personal leave",
+            ),
+            LeaveType(
+                name="Sick Leave",
+                default_annual_quota=10,
+                description="Medical leave",
+            ),
+            LeaveType(
+                name="Long Leave",
+                default_annual_quota=15,
+                description="Extended leave",
+            ),
+        ]
+        existing_leave_type_names = {leave_type.name for leave_type in db.query(LeaveType).all()}
+        for leave_type in desired_leave_types:
+            if leave_type.name not in existing_leave_type_names:
+                db.add(leave_type)
+        db.commit()
 
         default_approval_flows = {
             "Emergency Leave": ["MANAGER", "HR"],
