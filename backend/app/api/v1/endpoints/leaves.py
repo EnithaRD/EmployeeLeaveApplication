@@ -138,7 +138,10 @@ def apply_leave(
     if medical_certificate is not None and medical_certificate.filename:
         certificate_data = save_certificate(medical_certificate)
 
-    approval_chain = get_chain_for_leave_type(db, leave_type)
+    if current_user.role == "MANAGER":
+        approval_chain = ["HR"]
+    else:
+        approval_chain = get_chain_for_leave_type(db, leave_type)
 
     leave = LeaveApplication(
         employee_id=employee_id,

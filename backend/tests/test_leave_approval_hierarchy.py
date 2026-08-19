@@ -156,6 +156,55 @@ def test_apply_routes_emergency_leave_to_manager_then_hr(client, db_session):
     assert response.json()["approval_stage"] == 0
 
 
+def test_manager_applying_for_sick_leave_routes_to_hr_not_manager(client, db_session):
+    leave_type = _create_leave_type(db_session, "Sick Leave")
+    _, _, headers = _create_user_with_token(db_session, "manager-routing1@example.com", "MANAGER")
+
+    response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": leave_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        files={"medical_certificate": ("cert.pdf", b"%PDF-1.4 fake", "application/pdf")},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_chain"] == "HR"
+
+
+def test_manager_applying_for_emergency_leave_routes_to_hr_only(client, db_session):
+    leave_type = _create_leave_type(db_session, "Emergency Leave")
+    _, _, headers = _create_user_with_token(db_session, "manager-routing2@example.com", "MANAGER")
+
+    response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": leave_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_chain"] == "HR"
+
+
+def test_manager_cannot_decide_their_own_leave_request(client, db_session):
+    leave_type = _create_leave_type(db_session, "Casual Leave")
+    manager, _, manager_headers = _create_user_with_token(db_session, "manager-routing3@example.com", "MANAGER")
+
+    apply_response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": leave_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        headers=manager_headers,
+    )
+    leave_id = apply_response.json()["id"]
+
+    decide_response = client.put(
+        f"/api/v1/leaves/{leave_id}/decide",
+        json={"action": "APPROVED", "comment": ""},
+        headers=manager_headers,
+    )
+
+    assert decide_response.status_code == 403
+
+
 # --- deciding a single-stage (manager-only) request ------------------------------------
 
 
