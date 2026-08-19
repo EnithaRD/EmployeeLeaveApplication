@@ -5,6 +5,7 @@ from datetime import date
 from app.api.v1.router import router as api_router
 from app.db.base import Base
 from app.db.database import SessionLocal, engine
+from app.models.approval_routing_rule import ApprovalRoutingRule
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.holiday import Holiday
@@ -14,6 +15,7 @@ from app.models.leave_type import LeaveType
 from app.models.medical_certificate import MedicalCertificate
 from app.models.otp_code import OtpCode
 from app.models.user import User
+from app.services.approval_routing_service import seed_default_routing_rules
 
 
 app = FastAPI(
@@ -60,6 +62,7 @@ def seed_demo_data():
         role_users = {
             "admin@example.com": ("Admin User", "ADMIN"),
             "manager@example.com": ("Manager User", "MANAGER"),
+            "hr@example.com": ("HR User", "HR"),
             "employee@example.com": ("Employee User", "EMPLOYEE"),
         }
 
@@ -94,6 +97,11 @@ def seed_demo_data():
                 users_by_email["admin@example.com"].id,
             ),
             (
+                "hr@example.com",
+                "HR User",
+                users_by_email["admin@example.com"].id,
+            ),
+            (
                 "employee@example.com",
                 "Employee User",
                 users_by_email["manager@example.com"].id,
@@ -118,28 +126,43 @@ def seed_demo_data():
                     )
                 )
 
-        if db.query(LeaveType).count() == 0:
-            db.add_all(
-                [
-                    LeaveType(
-                        name="Sick Leave",
-                        default_annual_quota=10,
-                        description="Medical leave",
-                    ),
-                    LeaveType(
-                        name="Casual Leave",
-                        default_annual_quota=8,
-                        description="Short personal leave",
-                    ),
-                    LeaveType(
-                        name="Earned Leave",
-                        default_annual_quota=15,
-                        description="Annual/vacation leave",
-                    ),
-                ]
-            )
+        default_leave_types = [
+            LeaveType(
+                name="Sick Leave",
+                default_annual_quota=10,
+                description="Medical leave",
+            ),
+            LeaveType(
+                name="Casual Leave",
+                default_annual_quota=8,
+                description="Short personal leave",
+            ),
+            LeaveType(
+                name="Earned Leave",
+                default_annual_quota=15,
+                description="Annual/vacation leave",
+            ),
+            LeaveType(
+                name="Long Leave",
+                default_annual_quota=20,
+                description="Extended leave requiring HR approval",
+            ),
+            LeaveType(
+                name="Emergency Leave",
+                default_annual_quota=5,
+                description="Urgent leave requiring manager and HR approval",
+            ),
+        ]
+        existing_leave_type_names = {
+            name for (name,) in db.query(LeaveType.name).all()
+        }
+        for leave_type in default_leave_types:
+            if leave_type.name not in existing_leave_type_names:
+                db.add(leave_type)
 
         db.commit()
+
+        seed_default_routing_rules(db)
 
 
 @app.get("/")

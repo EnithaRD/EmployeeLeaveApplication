@@ -13,6 +13,7 @@ import ApplyLeave from "../pages/leave/ApplyLeave";
 import Approvals from "../pages/leave/Approvals";
 import Dashboard from "../pages/leave/Dashboard";
 import MyLeaves from "../pages/leave/MyLeaves";
+import ApprovalRouting from "../pages/admin/ApprovalRouting";
 import ProtectedRoute from "./ProtectedRoute";
 
 
@@ -28,6 +29,7 @@ function AppShell({ children }) {
         : "Employee";
     const displayName = user?.email || roleLabel;
     const canApplyLeave = user?.role === "EMPLOYEE" || user?.role === "MANAGER";
+    const isAdmin = user?.role === "ADMIN";
 
 
     const navLinkClassName = ({ isActive }) =>
@@ -79,6 +81,11 @@ function AppShell({ children }) {
                         <NavLink className={navLinkClassName} to="/approvals">
                             Approvals
                         </NavLink>
+                        {isAdmin ? (
+                            <NavLink className={navLinkClassName} to="/admin/approval-routing">
+                                Approval Routing
+                            </NavLink>
+                        ) : null}
                         <button
                             type="button"
                             onClick={logout}
@@ -168,6 +175,18 @@ function AppRoutes() {
                     <ProtectedRoute>
                         <AppShell>
                             <Approvals />
+                        </AppShell>
+                    </ProtectedRoute>
+                }
+            />
+
+
+            <Route
+                path="/admin/approval-routing"
+                element={
+                    <ProtectedRoute allowedRoles={["ADMIN"]}>
+                        <AppShell>
+                            <ApprovalRouting />
                         </AppShell>
                     </ProtectedRoute>
                 }

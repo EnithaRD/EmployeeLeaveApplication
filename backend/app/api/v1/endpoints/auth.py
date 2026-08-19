@@ -32,6 +32,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 LOGIN_ALIASES = {
     "admin": "admin@example.com",
     "manager": "manager@example.com",
+    "hr": "hr@example.com",
     "employee": "employee@example.com",
 }
 

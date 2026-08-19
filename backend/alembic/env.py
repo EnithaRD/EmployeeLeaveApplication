@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
+from app.models.approval_routing_rule import ApprovalRoutingRule  # noqa: F401
 from app.models.department import Department  # noqa: F401
 from app.models.employee import Employee  # noqa: F401
 from app.models.holiday import Holiday  # noqa: F401

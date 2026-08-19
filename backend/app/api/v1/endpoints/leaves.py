@@ -16,6 +16,7 @@ from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
 from app.models.medical_certificate import MedicalCertificate
 from app.models.user import User
+from app.services.approval_routing_service import get_chain_for_leave_type
 from app.services.leave_balance_service import (
     calculate_working_days,
     get_available_days,
@@ -28,6 +29,7 @@ from app.schemas.leave_application import LeaveApplicationRead
 router = APIRouter(prefix="/leaves", tags=["leaves"])
 
 SICK_LEAVE_TYPE_NAME = "sick leave"
+APPROVER_ROLES = ["MANAGER", "HR", "ADMIN"]
 
 
 class LeaveApplyRequest(BaseModel):
@@ -49,18 +51,23 @@ def resolve_employee_id(current_user):
     return employee_id
 
 
-def get_requester_role(db, leave):
-    requester = db.query(User).filter(User.id == leave.employee_id).first()
-    return requester.role if requester else None
+def get_approval_chain(leave) -> list[str]:
+    return (leave.approval_chain or "MANAGER").split(",")
+
+
+def current_required_role(leave) -> str:
+    chain = get_approval_chain(leave)
+    stage = min(leave.approval_stage or 0, len(chain) - 1)
+    return chain[stage]
 
 
 def _pending_leaves_for(db, current_user):
-    target_role = "EMPLOYEE" if current_user.role == "MANAGER" else "MANAGER"
-    return (
-        db.query(LeaveApplication)
-        .join(User, User.id == LeaveApplication.employee_id)
-        .filter(LeaveApplication.status == "PENDING", User.role == target_role)
-    )
+    query = db.query(LeaveApplication).filter(LeaveApplication.status == "PENDING")
+
+    if current_user.role == "ADMIN":
+        return query
+
+    return [leave for leave in query.all() if current_required_role(leave) == current_user.role]
 
 
 @router.post("/apply", response_model=LeaveApplicationRead)
@@ -132,6 +139,8 @@ def apply_leave(
     if medical_certificate is not None and medical_certificate.filename:
         certificate_data = save_certificate(medical_certificate)
 
+    approval_chain = get_chain_for_leave_type(db, leave_type)
+
     leave = LeaveApplication(
         employee_id=employee_id,
         leave_type_id=leave_type_id,
@@ -141,6 +150,8 @@ def apply_leave(
         reason=reason,
         status="PENDING",
         applied_at=datetime.utcnow(),
+        approval_chain=",".join(approval_chain),
+        approval_stage=0,
     )
     db.add(leave)
     db.commit()
@@ -250,10 +261,10 @@ def delete_leave(
 @router.get("/pending", response_model=List[LeaveApplicationRead])
 def get_pending_leaves(
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(["MANAGER", "ADMIN"])),
+    current_user=Depends(require_role(APPROVER_ROLES)),
 ):
-    leaves = _pending_leaves_for(db, current_user).all()
-    return leaves
+    result = _pending_leaves_for(db, current_user)
+    return result if isinstance(result, list) else result.all()
 
 
 @router.get("/pending-count")
@@ -261,10 +272,11 @@ def get_pending_count(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role not in {"ADMIN", "MANAGER"}:
+    if current_user.role not in set(APPROVER_ROLES):
         return {"count": 0}
 
-    count = _pending_leaves_for(db, current_user).count()
+    result = _pending_leaves_for(db, current_user)
+    count = len(result) if isinstance(result, list) else result.count()
     return {"count": int(count or 0)}
 
 
@@ -331,7 +343,7 @@ def decide_leave(
     leave_id: int,
     payload: LeaveDecisionRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(require_role(["MANAGER", "ADMIN"])),
+    current_user=Depends(require_role(APPROVER_ROLES)),
 ):
     decision = payload.action.upper()
     if decision not in {"APPROVED", "REJECTED"}:
@@ -344,29 +356,31 @@ def decide_leave(
     if not leave or leave.status != "PENDING":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending leave request not found.")
 
-    requester_role = get_requester_role(db, leave)
-
-    if requester_role == "EMPLOYEE" and current_user.role != "MANAGER":
+    required_role = current_required_role(leave)
+    if current_user.role != "ADMIN" and current_user.role != required_role:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a manager can decide on an employee's leave request.",
+            detail=f"Only {required_role} can decide on this leave request at its current stage.",
         )
 
-    if requester_role == "MANAGER" and current_user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only an admin can decide on a manager's leave request.",
-        )
-
-    leave.status = decision
     leave.approver_id = resolve_employee_id(current_user)
     leave.approver_comment = payload.comment
-    leave.decided_at = datetime.utcnow()
 
-    if decision == "APPROVED":
-        balance = get_or_create_balance(db, leave.employee_id, leave.leave_type_id, leave.start_date.year)
-        balance.used = balance.used + int(leave.days_count)
-        db.add(balance)
+    if decision == "REJECTED":
+        leave.status = "REJECTED"
+        leave.decided_at = datetime.utcnow()
+    else:
+        chain = get_approval_chain(leave)
+        is_final_stage = (leave.approval_stage or 0) >= len(chain) - 1
+
+        if is_final_stage:
+            leave.status = "APPROVED"
+            leave.decided_at = datetime.utcnow()
+            balance = get_or_create_balance(db, leave.employee_id, leave.leave_type_id, leave.start_date.year)
+            balance.used = balance.used + int(leave.days_count)
+            db.add(balance)
+        else:
+            leave.approval_stage = (leave.approval_stage or 0) + 1
 
     db.commit()
     db.refresh(leave)
@@ -394,12 +408,10 @@ def download_certificate(
             detail="No medical certificate attached to this leave request.",
         )
 
-    requester_role = get_requester_role(db, leave)
     is_owner = leave.employee_id == resolve_employee_id(current_user)
-    is_reviewing_manager = current_user.role == "MANAGER" and requester_role == "EMPLOYEE"
-    is_admin = current_user.role == "ADMIN"
+    is_approver = current_user.role in set(APPROVER_ROLES)
 
-    if not (is_owner or is_reviewing_manager or is_admin):
+    if not (is_owner or is_approver):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to access this medical certificate.",

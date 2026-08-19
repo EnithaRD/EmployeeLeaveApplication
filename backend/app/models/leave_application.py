@@ -17,3 +17,5 @@ class LeaveApplication(Base):
     approver_comment = Column(String(500), nullable=True)
     applied_at = Column(DateTime, nullable=False, server_default=func.now())
     decided_at = Column(DateTime, nullable=True)
+    approval_chain = Column(String(100), nullable=False, server_default="MANAGER")
+    approval_stage = Column(Integer, nullable=False, server_default="0")

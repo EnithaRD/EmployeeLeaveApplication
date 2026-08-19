@@ -34,6 +34,8 @@ class LeaveApplicationUpdate(BaseModel):
 class LeaveApplicationRead(LeaveApplicationBase):
     id: int
     applied_at: datetime
+    approval_chain: str | None = None
+    approval_stage: int = 0
 
     model_config = {
         "from_attributes": True,

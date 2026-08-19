@@ -40,7 +40,7 @@ def _create_leave_type(db_session, name):
     return leave_type
 
 
-def _create_leave(db_session, requester_user_id, leave_type_id=None, leave_status="PENDING"):
+def _create_leave(db_session, requester_user_id, leave_type_id=None, leave_status="PENDING", approval_chain="MANAGER", approval_stage=0):
     leave = LeaveApplication(
         employee_id=requester_user_id,
         leave_type_id=leave_type_id,
@@ -50,6 +50,8 @@ def _create_leave(db_session, requester_user_id, leave_type_id=None, leave_statu
         reason="test leave",
         status=leave_status,
         applied_at=datetime.utcnow(),
+        approval_chain=approval_chain,
+        approval_stage=approval_stage,
     )
     db_session.add(leave)
     db_session.commit()
@@ -98,14 +100,70 @@ def test_admin_cannot_apply_for_leave(client, db_session):
     assert response.json()["detail"] == "Only employees or managers may apply for leave."
 
 
-# --- deciding an employee-submitted request ------------------------------------------
+# --- leave-type-based routing on apply ------------------------------------------------
 
 
-def test_manager_can_decide_employee_leave_request(client, db_session):
-    leave_type = _create_leave_type(db_session, "Annual - manager decides")
+def test_apply_routes_sick_and_casual_leave_to_manager_only(client, db_session):
+    sick_type = _create_leave_type(db_session, "Sick Leave")
+    casual_type = _create_leave_type(db_session, "Casual Leave")
+    _, _, headers = _create_user_with_token(db_session, "employee-routing1@example.com", "EMPLOYEE")
+
+    certificate = ("certificate.pdf", b"%PDF-1.4 fake", "application/pdf")
+    sick_response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": sick_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        files={"medical_certificate": certificate},
+        headers=headers,
+    )
+    casual_response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": casual_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        headers=headers,
+    )
+
+    assert sick_response.status_code == 200
+    assert sick_response.json()["approval_chain"] == "MANAGER"
+    assert casual_response.status_code == 200
+    assert casual_response.json()["approval_chain"] == "MANAGER"
+
+
+def test_apply_routes_long_leave_to_hr_only(client, db_session):
+    leave_type = _create_leave_type(db_session, "Long Leave")
+    _, _, headers = _create_user_with_token(db_session, "employee-routing2@example.com", "EMPLOYEE")
+
+    response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": leave_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_chain"] == "HR"
+
+
+def test_apply_routes_emergency_leave_to_manager_then_hr(client, db_session):
+    leave_type = _create_leave_type(db_session, "Emergency Leave")
+    _, _, headers = _create_user_with_token(db_session, "employee-routing3@example.com", "EMPLOYEE")
+
+    response = client.post(
+        "/api/v1/leaves/apply",
+        data={"leave_type_id": leave_type.id, "start_date": str(A_WEEKDAY), "end_date": str(A_WEEKDAY)},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_chain"] == "MANAGER,HR"
+    assert response.json()["approval_stage"] == 0
+
+
+# --- deciding a single-stage (manager-only) request ------------------------------------
+
+
+def test_manager_can_decide_a_manager_stage_leave_request(client, db_session):
+    leave_type = _create_leave_type(db_session, "Annual - manager stage decide")
     employee, _, _ = _create_user_with_token(db_session, "employee-decide@example.com", "EMPLOYEE")
     _, _, manager_headers = _create_user_with_token(db_session, "manager-decide@example.com", "MANAGER")
-    leave = _create_leave(db_session, employee.id, leave_type_id=leave_type.id)
+    leave = _create_leave(db_session, employee.id, leave_type_id=leave_type.id, approval_chain="MANAGER")
 
     response = client.put(
         f"/api/v1/leaves/{leave.id}/decide",
@@ -117,29 +175,26 @@ def test_manager_can_decide_employee_leave_request(client, db_session):
     assert response.json()["status"] == "APPROVED"
 
 
-def test_admin_cannot_decide_employee_leave_request(client, db_session):
+def test_hr_cannot_decide_a_manager_stage_leave_request(client, db_session):
     employee, _, _ = _create_user_with_token(db_session, "employee-decide2@example.com", "EMPLOYEE")
-    _, _, admin_headers = _create_user_with_token(db_session, "admin-decide2@example.com", "ADMIN")
-    leave = _create_leave(db_session, employee.id)
+    _, _, hr_headers = _create_user_with_token(db_session, "hr-decide2@example.com", "HR")
+    leave = _create_leave(db_session, employee.id, approval_chain="MANAGER")
 
     response = client.put(
         f"/api/v1/leaves/{leave.id}/decide",
         json={"action": "APPROVED", "comment": ""},
-        headers=admin_headers,
+        headers=hr_headers,
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Only a manager can decide on an employee's leave request."
+    assert response.json()["detail"] == "Only MANAGER can decide on this leave request at its current stage."
 
 
-# --- deciding a manager-submitted request --------------------------------------------
-
-
-def test_admin_can_decide_manager_leave_request(client, db_session):
-    leave_type = _create_leave_type(db_session, "Annual - admin decides")
-    requesting_manager, _, _ = _create_user_with_token(db_session, "manager-requester@example.com", "MANAGER")
+def test_admin_can_override_and_decide_any_stage(client, db_session):
+    leave_type = _create_leave_type(db_session, "Annual - admin override decide")
+    employee, _, _ = _create_user_with_token(db_session, "employee-decide3@example.com", "EMPLOYEE")
     _, _, admin_headers = _create_user_with_token(db_session, "admin-decide3@example.com", "ADMIN")
-    leave = _create_leave(db_session, requesting_manager.id, leave_type_id=leave_type.id)
+    leave = _create_leave(db_session, employee.id, leave_type_id=leave_type.id, approval_chain="HR")
 
     response = client.put(
         f"/api/v1/leaves/{leave.id}/decide",
@@ -151,62 +206,117 @@ def test_admin_can_decide_manager_leave_request(client, db_session):
     assert response.json()["status"] == "APPROVED"
 
 
-def test_other_manager_cannot_decide_manager_leave_request(client, db_session):
-    requesting_manager, _, _ = _create_user_with_token(db_session, "manager-requester2@example.com", "MANAGER")
-    _, _, other_manager_headers = _create_user_with_token(db_session, "manager-decider@example.com", "MANAGER")
-    leave = _create_leave(db_session, requesting_manager.id)
+# --- deciding a multi-stage (manager -> HR) request -------------------------------------
+
+
+def test_emergency_leave_requires_manager_then_hr_approval(client, db_session):
+    leave_type = _create_leave_type(db_session, "Annual - emergency decide")
+    employee, _, _ = _create_user_with_token(db_session, "employee-decide4@example.com", "EMPLOYEE")
+    _, _, manager_headers = _create_user_with_token(db_session, "manager-decide4@example.com", "MANAGER")
+    _, _, hr_headers = _create_user_with_token(db_session, "hr-decide4@example.com", "HR")
+    leave = _create_leave(db_session, employee.id, leave_type_id=leave_type.id, approval_chain="MANAGER,HR")
+
+    hr_attempt_before_manager = client.put(
+        f"/api/v1/leaves/{leave.id}/decide",
+        json={"action": "APPROVED", "comment": ""},
+        headers=hr_headers,
+    )
+    assert hr_attempt_before_manager.status_code == 403
+
+    manager_stage_response = client.put(
+        f"/api/v1/leaves/{leave.id}/decide",
+        json={"action": "APPROVED", "comment": "looks good"},
+        headers=manager_headers,
+    )
+    assert manager_stage_response.status_code == 200
+    assert manager_stage_response.json()["status"] == "PENDING"
+    assert manager_stage_response.json()["approval_stage"] == 1
+
+    manager_attempt_after_own_stage = client.put(
+        f"/api/v1/leaves/{leave.id}/decide",
+        json={"action": "APPROVED", "comment": ""},
+        headers=manager_headers,
+    )
+    assert manager_attempt_after_own_stage.status_code == 403
+
+    hr_stage_response = client.put(
+        f"/api/v1/leaves/{leave.id}/decide",
+        json={"action": "APPROVED", "comment": "approved"},
+        headers=hr_headers,
+    )
+    assert hr_stage_response.status_code == 200
+    assert hr_stage_response.json()["status"] == "APPROVED"
+
+
+def test_rejection_at_first_stage_ends_the_request_immediately(client, db_session):
+    employee, _, _ = _create_user_with_token(db_session, "employee-decide5@example.com", "EMPLOYEE")
+    _, _, manager_headers = _create_user_with_token(db_session, "manager-decide5@example.com", "MANAGER")
+    leave = _create_leave(db_session, employee.id, approval_chain="MANAGER,HR")
 
     response = client.put(
         f"/api/v1/leaves/{leave.id}/decide",
-        json={"action": "APPROVED", "comment": ""},
-        headers=other_manager_headers,
+        json={"action": "REJECTED", "comment": "not eligible"},
+        headers=manager_headers,
     )
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Only an admin can decide on a manager's leave request."
+    assert response.status_code == 200
+    assert response.json()["status"] == "REJECTED"
 
 
 # --- pending list/count scoping -------------------------------------------------------
 
 
-def test_pending_list_for_manager_only_includes_employee_requests(client, db_session):
+def test_pending_list_for_manager_only_includes_manager_stage_requests(client, db_session):
     employee, _, _ = _create_user_with_token(db_session, "employee-pending@example.com", "EMPLOYEE")
-    requesting_manager, _, _ = _create_user_with_token(db_session, "manager-pending-req@example.com", "MANAGER")
     _, _, manager_headers = _create_user_with_token(db_session, "manager-pending-viewer@example.com", "MANAGER")
-    employee_leave = _create_leave(db_session, employee.id)
-    _create_leave(db_session, requesting_manager.id)
+    manager_stage_leave = _create_leave(db_session, employee.id, approval_chain="MANAGER")
+    _create_leave(db_session, employee.id, approval_chain="HR")
 
     response = client.get("/api/v1/leaves/pending", headers=manager_headers)
 
     assert response.status_code == 200
     returned_ids = {leave["id"] for leave in response.json()}
-    assert returned_ids == {employee_leave.id}
+    assert returned_ids == {manager_stage_leave.id}
 
 
-def test_pending_list_for_admin_only_includes_manager_requests(client, db_session):
+def test_pending_list_for_hr_only_includes_hr_stage_requests(client, db_session):
     employee, _, _ = _create_user_with_token(db_session, "employee-pending2@example.com", "EMPLOYEE")
-    requesting_manager, _, _ = _create_user_with_token(db_session, "manager-pending-req2@example.com", "MANAGER")
+    _, _, hr_headers = _create_user_with_token(db_session, "hr-pending-viewer@example.com", "HR")
+    _create_leave(db_session, employee.id, approval_chain="MANAGER")
+    hr_stage_leave = _create_leave(db_session, employee.id, approval_chain="HR")
+    manager_then_hr_at_hr_stage = _create_leave(
+        db_session, employee.id, approval_chain="MANAGER,HR", approval_stage=1
+    )
+
+    response = client.get("/api/v1/leaves/pending", headers=hr_headers)
+
+    assert response.status_code == 200
+    returned_ids = {leave["id"] for leave in response.json()}
+    assert returned_ids == {hr_stage_leave.id, manager_then_hr_at_hr_stage.id}
+
+
+def test_pending_list_for_admin_includes_everything(client, db_session):
+    employee, _, _ = _create_user_with_token(db_session, "employee-pending3@example.com", "EMPLOYEE")
     _, _, admin_headers = _create_user_with_token(db_session, "admin-pending-viewer@example.com", "ADMIN")
-    _create_leave(db_session, employee.id)
-    manager_leave = _create_leave(db_session, requesting_manager.id)
+    manager_leave = _create_leave(db_session, employee.id, approval_chain="MANAGER")
+    hr_leave = _create_leave(db_session, employee.id, approval_chain="HR")
 
     response = client.get("/api/v1/leaves/pending", headers=admin_headers)
 
     assert response.status_code == 200
     returned_ids = {leave["id"] for leave in response.json()}
-    assert returned_ids == {manager_leave.id}
+    assert returned_ids == {manager_leave.id, hr_leave.id}
 
 
 def test_pending_count_is_scoped_the_same_way_as_pending_list(client, db_session):
-    employee, _, _ = _create_user_with_token(db_session, "employee-pending3@example.com", "EMPLOYEE")
-    requesting_manager, _, _ = _create_user_with_token(db_session, "manager-pending-req3@example.com", "MANAGER")
+    employee, _, _ = _create_user_with_token(db_session, "employee-pending4@example.com", "EMPLOYEE")
     _, _, manager_headers = _create_user_with_token(db_session, "manager-count-viewer@example.com", "MANAGER")
-    _, _, admin_headers = _create_user_with_token(db_session, "admin-count-viewer@example.com", "ADMIN")
-    _create_leave(db_session, employee.id)
-    _create_leave(db_session, requesting_manager.id)
+    _, _, hr_headers = _create_user_with_token(db_session, "hr-count-viewer@example.com", "HR")
+    _create_leave(db_session, employee.id, approval_chain="MANAGER")
+    _create_leave(db_session, employee.id, approval_chain="HR")
 
     manager_count = client.get("/api/v1/leaves/pending-count", headers=manager_headers)
-    admin_count = client.get("/api/v1/leaves/pending-count", headers=admin_headers)
+    hr_count = client.get("/api/v1/leaves/pending-count", headers=hr_headers)
 
     assert manager_count.json() == {"count": 1}
-    assert admin_count.json() == {"count": 1}
+    assert hr_count.json() == {"count": 1}
