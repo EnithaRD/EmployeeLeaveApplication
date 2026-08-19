@@ -61,14 +61,14 @@ function Signup() {
                             Create your account and start tracking leave.
                         </h1>
                         <p className="mt-4 max-w-xl text-sm leading-6 text-slate-300 lg:text-base">
-                            Sign up as an <span className="font-semibold text-white">employee</span> or a <span className="font-semibold text-white">manager</span> — an admin can assign your department later.
+                            Sign up as an <span className="font-semibold text-white">employee</span>, a <span className="font-semibold text-white">manager</span>, or <span className="font-semibold text-white">HR</span> — an admin can assign your department later.
                         </p>
                     </div>
 
                     <div className="mt-10 grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Roles</p>
-                            <p className="mt-2 text-sm text-white">Employee, Manager</p>
+                            <p className="mt-2 text-sm text-white">Employee, Manager, HR</p>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Next step</p>
@@ -151,6 +151,7 @@ function Signup() {
                                 >
                                     <option value="EMPLOYEE">Employee</option>
                                     <option value="MANAGER">Manager</option>
+                                    <option value="HR">HR</option>
                                 </select>
                             </div>
 

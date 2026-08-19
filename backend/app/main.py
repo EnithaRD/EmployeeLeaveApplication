@@ -9,8 +9,10 @@ from app.models.department import Department
 from app.models.employee import Employee
 from app.models.holiday import Holiday
 from app.models.leave_application import LeaveApplication
+from app.models.leave_application_step import LeaveApplicationStep
 from app.models.leave_balance import LeaveBalance
 from app.models.leave_type import LeaveType
+from app.models.leave_type_approval_step import LeaveTypeApprovalStep
 from app.models.otp_code import OtpCode
 from app.models.user import User
 
@@ -59,6 +61,7 @@ def seed_demo_data():
         role_users = {
             "admin@example.com": ("Admin User", "ADMIN"),
             "manager@example.com": ("Manager User", "MANAGER"),
+            "hr@example.com": ("HR User", "HR"),
             "employee@example.com": ("Employee User", "EMPLOYEE"),
         }
 
@@ -93,6 +96,11 @@ def seed_demo_data():
                 users_by_email["admin@example.com"].id,
             ),
             (
+                "hr@example.com",
+                "HR User",
+                None,
+            ),
+            (
                 "employee@example.com",
                 "Employee User",
                 users_by_email["manager@example.com"].id,
@@ -121,9 +129,9 @@ def seed_demo_data():
             db.add_all(
                 [
                     LeaveType(
-                        name="Sick Leave",
-                        default_annual_quota=10,
-                        description="Medical leave",
+                        name="Emergency Leave",
+                        default_annual_quota=5,
+                        description="Urgent, unplanned leave",
                     ),
                     LeaveType(
                         name="Casual Leave",
@@ -131,12 +139,52 @@ def seed_demo_data():
                         description="Short personal leave",
                     ),
                     LeaveType(
-                        name="Earned Leave",
+                        name="Sick Leave",
+                        default_annual_quota=10,
+                        description="Medical leave",
+                    ),
+                    LeaveType(
+                        name="Long Leave",
                         default_annual_quota=15,
-                        description="Annual/vacation leave",
+                        description="Extended leave",
                     ),
                 ]
             )
+            db.commit()
+
+        default_approval_flows = {
+            "Emergency Leave": ["MANAGER", "HR"],
+            "Casual Leave": ["MANAGER"],
+            "Sick Leave": ["MANAGER"],
+            "Long Leave": ["HR"],
+        }
+
+        for leave_type_name, approver_roles in default_approval_flows.items():
+            leave_type = (
+                db.query(LeaveType)
+                .filter(LeaveType.name == leave_type_name)
+                .first()
+            )
+            if leave_type is None:
+                continue
+
+            has_steps = (
+                db.query(LeaveTypeApprovalStep)
+                .filter(LeaveTypeApprovalStep.leave_type_id == leave_type.id)
+                .first()
+                is not None
+            )
+            if has_steps:
+                continue
+
+            for step_order, approver_role in enumerate(approver_roles, start=1):
+                db.add(
+                    LeaveTypeApprovalStep(
+                        leave_type_id=leave_type.id,
+                        step_order=step_order,
+                        approver_role=approver_role,
+                    )
+                )
 
         db.commit()
 

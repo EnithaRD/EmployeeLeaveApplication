@@ -15,7 +15,7 @@ from app.schemas.auth import CurrentUser, OtpRequest, OtpVerify, SignupRequest, 
 from app.services import otp_service
 
 
-SIGNUP_ROLES = {"MANAGER", "EMPLOYEE"}
+SIGNUP_ROLES = {"MANAGER", "EMPLOYEE", "HR"}
 
 
 router = APIRouter(
@@ -32,6 +32,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 LOGIN_ALIASES = {
     "admin": "admin@example.com",
     "manager": "manager@example.com",
+    "hr": "hr@example.com",
     "employee": "employee@example.com",
 }
 

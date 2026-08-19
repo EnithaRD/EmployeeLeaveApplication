@@ -42,6 +42,48 @@ def test_signup_manager_creates_user_with_manager_role(client, db_session):
     assert response.json()["role"] == "MANAGER"
 
 
+def test_signup_hr_creates_user_with_hr_role(client, db_session):
+    response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "new.hr@example.com",
+            "password": "secret123",
+            "role": "HR",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["role"] == "HR"
+
+    user = db_session.query(User).filter(User.email == "new.hr@example.com").first()
+    employee = db_session.query(Employee).filter(Employee.user_id == user.id).first()
+    assert employee is not None
+
+
+def test_hr_can_log_in_after_signup(client, db_session):
+    signup_response = client.post(
+        "/api/v1/auth/signup",
+        json={
+            "email": "hr.login@example.com",
+            "password": "secret123",
+            "role": "HR",
+        },
+    )
+    assert signup_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": "hr.login@example.com",
+            "password": "secret123",
+        },
+    )
+
+    assert login_response.status_code == 200
+    assert "access_token" in login_response.json()
+
+
 def test_signup_duplicate_email_returns_409(client, db_session):
     payload = {
         "email": "duplicate@example.com",
