@@ -15,7 +15,7 @@ from app.schemas.auth import CurrentUser, OtpRequest, OtpVerify, SignupRequest, 
 from app.services import otp_service
 
 
-SIGNUP_ROLES = {"MANAGER", "EMPLOYEE"}
+SIGNUP_ROLES = {"MANAGER", "EMPLOYEE", "HR"}
 
 
 router = APIRouter(

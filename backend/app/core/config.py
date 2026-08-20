@@ -20,9 +20,6 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 5
     OTP_MAX_ATTEMPTS: int = 5
 
-    MEDICAL_CERTIFICATE_STORAGE_DIR: str = str(BASE_DIR / "storage" / "medical_certificates")
-    MEDICAL_CERTIFICATE_MAX_SIZE_BYTES: int = 5 * 1024 * 1024
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

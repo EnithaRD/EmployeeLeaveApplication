@@ -14,6 +14,7 @@ export default function MyLeaves() {
   const [leaves, setLeaves] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [leaveTypesById, setLeaveTypesById] = useState({})
 
   useEffect(() => {
     async function loadLeaves() {
@@ -28,7 +29,19 @@ export default function MyLeaves() {
       }
     }
 
+    async function loadLeaveTypes() {
+      try {
+        const response = await api.get("/leave-types")
+        setLeaveTypesById(
+          Object.fromEntries(response.data.map((type) => [type.id, type.name]))
+        )
+      } catch (err) {
+        // Leave type names are a display nicety; failing to load them shouldn't block the page.
+      }
+    }
+
     loadLeaves()
+    loadLeaveTypes()
   }, [])
 
   const cancelLeave = async (leaveId) => {
@@ -82,7 +95,7 @@ export default function MyLeaves() {
             ) : (
               leaves.map((leave) => (
                 <tr key={leave.id}>
-                  <td className="whitespace-nowrap px-6 py-5 text-slate-800">{leave.leave_type_id}</td>
+                  <td className="whitespace-nowrap px-6 py-5 text-slate-800">{leaveTypesById[leave.leave_type_id] || leave.leave_type_id}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.start_date} → {leave.end_date}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.days_count}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.reason || "—"}</td>

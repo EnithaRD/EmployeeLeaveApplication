@@ -5,14 +5,15 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.db.base import Base
-from app.models.approval_routing_rule import ApprovalRoutingRule  # noqa: F401
 from app.models.department import Department  # noqa: F401
 from app.models.employee import Employee  # noqa: F401
 from app.models.holiday import Holiday  # noqa: F401
 from app.models.leave_application import LeaveApplication  # noqa: F401
+from app.models.leave_application_document import LeaveApplicationDocument  # noqa: F401
+from app.models.leave_application_step import LeaveApplicationStep  # noqa: F401
 from app.models.leave_balance import LeaveBalance  # noqa: F401
 from app.models.leave_type import LeaveType  # noqa: F401
-from app.models.medical_certificate import MedicalCertificate  # noqa: F401
+from app.models.leave_type_approval_step import LeaveTypeApprovalStep  # noqa: F401
 from app.models.otp_code import OtpCode  # noqa: F401
 from app.models.user import User  # noqa: F401
 

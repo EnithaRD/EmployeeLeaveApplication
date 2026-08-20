@@ -7,6 +7,9 @@ const statusClasses = {
   error: "text-red-700 bg-red-100 border-red-200",
 }
 
+const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/jpeg", "image/png"]
+const MAX_DOCUMENT_SIZE_BYTES = 5 * 1024 * 1024
+
 export default function ApplyLeave() {
   const { user } = useAuth()
   const [leaveTypes, setLeaveTypes] = useState([])
@@ -14,17 +17,14 @@ export default function ApplyLeave() {
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [reason, setReason] = useState("")
-  const [certificateFile, setCertificateFile] = useState(null)
-  const [certificateError, setCertificateError] = useState(null)
   const [availableBalance, setAvailableBalance] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [feedback, setFeedback] = useState(null)
+  const [document, setDocument] = useState(null)
+  const [documentError, setDocumentError] = useState(null)
 
-  const ALLOWED_CERTIFICATE_TYPES = ["application/pdf", "image/jpeg", "image/png"]
-  const MAX_CERTIFICATE_SIZE_BYTES = 5 * 1024 * 1024
-
-  const selectedLeaveTypeName = leaveTypes.find((type) => String(type.id) === String(selectedType))?.name || ""
-  const isSickLeave = selectedLeaveTypeName.trim().toLowerCase() === "sick leave"
+  const selectedLeaveTypeName = leaveTypes.find((type) => String(type.id) === String(selectedType))?.name
+  const isSickLeave = selectedLeaveTypeName === "Sick Leave"
 
   useEffect(() => {
     async function loadLeaveTypes() {
@@ -63,61 +63,66 @@ export default function ApplyLeave() {
   }, [selectedType])
 
   useEffect(() => {
-    setCertificateFile(null)
-    setCertificateError(null)
+    setDocument(null)
+    setDocumentError(null)
   }, [selectedType])
 
-  const handleCertificateChange = (event) => {
+  const handleDocumentChange = (event) => {
     const file = event.target.files?.[0] || null
 
     if (!file) {
-      setCertificateFile(null)
-      setCertificateError(null)
+      setDocument(null)
+      setDocumentError(null)
       return
     }
 
-    if (!ALLOWED_CERTIFICATE_TYPES.includes(file.type)) {
-      setCertificateFile(null)
-      setCertificateError("Unsupported file type. Please upload a PDF, JPG, or PNG file.")
+    if (!ALLOWED_DOCUMENT_TYPES.includes(file.type)) {
+      setDocument(null)
+      setDocumentError("Unsupported file type. Please upload a PDF, JPG, or PNG file.")
       event.target.value = ""
       return
     }
 
-    if (file.size > MAX_CERTIFICATE_SIZE_BYTES) {
-      setCertificateFile(null)
-      setCertificateError("File is too large. Maximum allowed size is 5MB.")
+    if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+      setDocument(null)
+      setDocumentError("File is too large. Maximum allowed size is 5MB.")
       event.target.value = ""
       return
     }
 
-    setCertificateFile(file)
-    setCertificateError(null)
+    setDocument(file)
+    setDocumentError(null)
   }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-
-    if (isSickLeave && !certificateFile) {
-      setCertificateError("A medical certificate is required for Sick Leave.")
-      return
-    }
-
     setIsSubmitting(true)
     setFeedback(null)
 
     try {
-      const formData = new FormData()
-      formData.append("leave_type_id", Number(selectedType))
-      formData.append("start_date", startDate)
-      formData.append("end_date", endDate)
-      formData.append("reason", reason)
-      if (certificateFile) {
-        formData.append("medical_certificate", certificateFile)
+      if (isSickLeave && !document) {
+        setFeedback({
+          type: "error",
+          message: "A supporting document is required for Sick Leave requests.",
+        })
+        setIsSubmitting(false)
+        return
       }
 
-      await api.post("/leaves/apply", formData, {
-        headers: { "Content-Type": undefined },
+      const response = await api.post("/leaves/apply", {
+        leave_type_id: Number(selectedType),
+        start_date: startDate,
+        end_date: endDate,
+        reason,
       })
+
+      if (isSickLeave && document) {
+        const formData = new FormData()
+        formData.append("file", document)
+        await api.post(`/leaves/${response.data.id}/document`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      }
 
       setFeedback({
         type: "success",
@@ -128,8 +133,8 @@ export default function ApplyLeave() {
       setEndDate("")
       setSelectedType("")
       setAvailableBalance(null)
-      setCertificateFile(null)
-      setCertificateError(null)
+      setDocument(null)
+      setDocumentError(null)
     } catch (error) {
       const message = error.response?.data?.detail || "Unable to submit leave request."
       setFeedback({ type: "error", message })
@@ -192,28 +197,6 @@ export default function ApplyLeave() {
           </div>
         </div>
 
-        {isSickLeave ? (
-          <div>
-            <label htmlFor="medicalCertificate" className="block text-sm font-medium text-slate-700">
-              Medical certificate <span className="text-red-600">(required)</span>
-            </label>
-            <input
-              id="medicalCertificate"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={handleCertificateChange}
-              className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-            />
-            <p className="mt-1 text-xs text-slate-500">PDF, JPG, or PNG. Maximum size 5MB.</p>
-            {certificateFile ? (
-              <p className="mt-1 text-xs text-slate-600">Selected file: {certificateFile.name}</p>
-            ) : null}
-            {certificateError ? (
-              <p className="mt-1 text-xs text-red-600">{certificateError}</p>
-            ) : null}
-          </div>
-        ) : null}
-
         <div>
           <label htmlFor="reason" className="block text-sm font-medium text-slate-700">Reason</label>
           <textarea
@@ -225,6 +208,28 @@ export default function ApplyLeave() {
             placeholder="Enter a short explanation for your leave request"
           />
         </div>
+
+        {isSickLeave ? (
+          <div>
+            <label htmlFor="document" className="block text-sm font-medium text-slate-700">
+              Supporting document <span className="text-red-600">(required)</span>
+            </label>
+            <input
+              id="document"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={handleDocumentChange}
+              className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            />
+            <p className="mt-1 text-xs text-slate-500">PDF, JPG, or PNG. Maximum size 5MB.</p>
+            {document ? (
+              <p className="mt-1 text-xs text-slate-600">Selected file: {document.name}</p>
+            ) : null}
+            {documentError ? (
+              <p className="mt-1 text-xs text-red-600">{documentError}</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
           <p className="font-medium">Available balance</p>
@@ -243,7 +248,7 @@ export default function ApplyLeave() {
           </div>
           <button
             type="submit"
-            disabled={isSubmitting || !selectedType || !startDate || !endDate || (isSickLeave && !certificateFile)}
+            disabled={isSubmitting || !selectedType || !startDate || !endDate || (isSickLeave && !document)}
             className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {isSubmitting ? "Submitting..." : "Submit request"}

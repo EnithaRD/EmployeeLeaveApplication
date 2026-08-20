@@ -10,6 +10,8 @@ export default function Approvals() {
   const [activeRejectId, setActiveRejectId] = useState(null)
   const [comment, setComment] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [leaveTypesById, setLeaveTypesById] = useState({})
+  const [documentError, setDocumentError] = useState(null)
 
   useEffect(() => {
     async function loadPending() {
@@ -24,8 +26,31 @@ export default function Approvals() {
       }
     }
 
+    async function loadLeaveTypes() {
+      try {
+        const response = await api.get("/leave-types")
+        setLeaveTypesById(
+          Object.fromEntries(response.data.map((type) => [type.id, type.name]))
+        )
+      } catch (err) {
+        // Leave type names are a display nicety; failing to load them shouldn't block approvals.
+      }
+    }
+
     loadPending()
+    loadLeaveTypes()
   }, [])
+
+  const viewDocument = async (leaveId) => {
+    setDocumentError(null)
+    try {
+      const response = await api.get(`/leaves/${leaveId}/document`, { responseType: "blob" })
+      const url = URL.createObjectURL(response.data)
+      window.open(url, "_blank", "noopener,noreferrer")
+    } catch (err) {
+      setDocumentError(err.response?.data?.detail || "Unable to load the document.")
+    }
+  }
 
   const updateLeaveStatus = async (leaveId, action, reviewComment) => {
     setIsSubmitting(true)
@@ -63,6 +88,10 @@ export default function Approvals() {
         <div className="mb-6 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</div>
       ) : null}
 
+      {documentError ? (
+        <div className="mb-6 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{documentError}</div>
+      ) : null}
+
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
           <thead className="bg-slate-50">
@@ -88,11 +117,20 @@ export default function Approvals() {
               pendingLeaves.map((leave) => (
                 <tr key={leave.id}>
                   <td className="whitespace-nowrap px-6 py-5 text-slate-800">{leave.employee_id}</td>
-                  <td className="px-6 py-5 text-slate-600">{leave.leave_type_id}</td>
+                  <td className="px-6 py-5 text-slate-600">{leaveTypesById[leave.leave_type_id] || leave.leave_type_id}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.start_date} → {leave.end_date}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.days_count}</td>
                   <td className="px-6 py-5 text-slate-600">{leave.reason || "No reason provided"}</td>
                   <td className="px-6 py-5 space-y-3">
+                    {leaveTypesById[leave.leave_type_id] === "Sick Leave" ? (
+                      <button
+                        type="button"
+                        onClick={() => viewDocument(leave.id)}
+                        className="inline-flex w-full items-center justify-center rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50"
+                      >
+                        View document
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => updateLeaveStatus(leave.id, "APPROVED", "")}
